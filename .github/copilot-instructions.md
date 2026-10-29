@@ -57,6 +57,36 @@ explicitly accept its findings, before merging. This caught a real, CI-passing, 
   change — confidence in your own output is exactly what this step exists to check.
 - Scaffolding, config-only, and documentation-only PRs may skip this gate.
 
+## Recurring architecture-health pass
+
+Per constitution Principle VII: after every 2-3 merged sub-issues, pause before claiming the next
+one and do a dedicated architecture-health check-in (not tied to any single PR's diff):
+
+- Re-read `docs/architecture.md` end to end against the current state of `src/`.
+- Look specifically for: module-boundary violations (a component reaching into another's
+  internals), logic duplicated across modules that should be shared, contracts that have quietly
+  drifted from what the doc says, and scope creep accumulated across the recently merged PRs.
+- Fix small findings immediately in a short follow-up PR. File a tracked issue for anything larger
+  than a quick fix — don't expand the issue you're about to start to cover it.
+- Note in chat/PR history that the pass happened and what (if anything) it found, so it's
+  auditable rather than an invisible, unverifiable step.
+
+## Rigorous pre-implementation review ("rubber-duck")
+
+Per constitution Principle VII: before writing implementation code for any sub-issue whose design
+is **not** already fully settled by `docs/architecture.md` (i.e. it requires resolving an open
+question from §13, or making a new structural decision not already locked in), write a short
+implementation plan first and subject it to a rigorous Socratic pre-implementation review (the
+`rubber-duck` agent type in this environment, or an equivalent independent design-review pass if
+unavailable). This is an *interview*, not a light skim: it should relentlessly probe for unstated
+assumptions, gaps the plan doesn't address, and untested edge cases, the same way you'd interview
+a plan before trusting it with real stakes. Resolve or explicitly accept every question it raises
+before starting implementation.
+
+Issues whose design is already fully settled by `docs/architecture.md` (most of #6-#13 are, per
+the existing package layout and contracts) MAY skip this step — don't dilute it by running it on
+settled designs where there's nothing left to question.
+
 ## Pull request conventions
 
 - Title: short, descriptive, matches the issue title where practical.
