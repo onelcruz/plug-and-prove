@@ -36,7 +36,7 @@ plug-and-prove/
 │   ├── scenarios/        # scenario YAML (targets, birds, clutter, seed)
 │   └── sensors/           # per-sensor YAML (accuracy, rate, dropout, offsets)
 ├── src/
-│   ├── simulator/
+│   ├── simulator/            # includes rng.py, the shared seeded-RNG utility
 │   ├── adapters/           # one module per sensor adapter
 │   ├── conformance/         # harness + individual checks
 │   ├── fusion/              # tracker, Kalman filter, association
@@ -45,12 +45,22 @@ plug-and-prove/
 │   ├── output/
 │   │   └── cot/             # MVP output adapter
 │   ├── recordkeeping/        # test record writer
+│   ├── config/               # pydantic models + YAML loader for config/*.yaml
 │   └── orchestrator.py
 ├── docs/
 │   └── architecture.md
-├── runs/                     # generated test records (gitignored or committed, TBD)
+├── runs/                     # generated test records (committed — see decision below)
 └── tests/
 ```
+
+**Resolved during implementation (issue #4):** a `src/config/` module (not listed in the
+original layout) holds the `pydantic` models and YAML loader shared by every component that
+reads `config/scenarios/*.yaml` or `config/sensors/*.yaml`. It's cross-cutting infrastructure,
+not a pipeline stage, so it doesn't appear in the component table in §2 above. `runs/` is
+committed (with a `.gitkeep` placeholder) rather than gitignored, resolving one of the open
+questions in §13 — test-record files are small and are part of the demo's evidence trail, so
+keeping them in version control by default is simpler than adding a separate export step. This
+can be revisited if `runs/` grows large.
 
 ## 3. The sensor adapter contract
 
@@ -222,8 +232,10 @@ graph TD
 - Precise classifier thresholds (speed/altitude/maneuver bands) that separate drone vs. bird vs. unknown — needs tuning against the simulator's actual noise model.
 - Exact definition and calculation of the "false threat track" metric used in the before/after fusion comparison (epic acceptance criterion).
 - CoT event type codes and update-rate throttling to TAK (avoid flooding the client).
-- Whether `runs/` (test record output) is committed to the repo or gitignored.
 - Whether heartbeat is a distinct message type or inferred from detection cadence for sensors with no target in view.
+
+~~Whether `runs/` (test record output) is committed to the repo or gitignored.~~ **Resolved in
+#4:** committed, with a `.gitkeep` placeholder — see §2.
 
 ## 14. Definition of done for this spike
 
