@@ -1,17 +1,26 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 → 1.1.0
-- Rationale: Principle III materially redefined. Previously stated that passing CI plus a
-  checked acceptance-criteria list was sufficient to merge, explicitly excluding full review.
-  A real bug (180-degree bearing inversion in the scenario simulator, #5) shipped and merged
-  under that rule because the only verification was tests the same author who wrote the
-  implementation also wrote, and CI passed on both. Independent review before merge is now
-  mandatory for any change introducing non-trivial logic.
-- Modified principles: III. Test-First & CI-Gated (expanded)
-- Added sections: none
+- Version change: 1.1.0 → 1.2.0
+- Rationale: Added a new principle (VII) requiring a recurring, dedicated architecture-health
+  review pass (not just per-PR review) and raised the rigor bar for pre-implementation design
+  review ("rubber-duck") on issues with open design questions, to a relentless/Socratic
+  interview standard rather than a light pass. Adopted after comparing this project's process
+  against an external AI-agent workflow (Matt Pocock / AI Hero's 5-skill pipeline) and
+  deliberately declining its strict test-first/TDD practice and its vertical-slice ticket
+  structure, both evaluated and rejected for this project (see decision log below).
+- Modified principles: none redefined
+- Added sections: VII. Recurring Architecture Health & Rigorous Pre-Implementation Review
 - Removed sections: none
-- Templates requiring updates: .github/copilot-instructions.md (merge workflow),
-  .github/pull_request_template.md (review checklist) — updated in the same change.
+- Templates requiring updates: .github/copilot-instructions.md (architecture-health cadence and
+  rubber-duck procedure) — updated in the same change.
+- Decision log (external workflow comparison, 2026-10-29): evaluated adopting Matt Pocock's
+  grill-me/to-spec/to-tickets/tdd/improve-codebase-architecture pipeline wholesale. Adopted: a
+  recurring architecture-health pass, and a stricter pre-code design-interview standard. Declined:
+  strict test-first/TDD (tests continue to be written alongside/after implementation, per existing
+  Principle III). Declined: re-slicing issues #6-#13 into vertical tracer-bullet tickets (the
+  horizontal, by-architectural-layer decomposition is retained, because this epic's core claim —
+  a new sensor adapter plugs in without touching core/fusion/display code — is best demonstrated
+  by cleanly separated layer boundaries, which a vertical-slice-first structure would undercut).
 - Follow-up TODOs: none
 -->
 # Plug-and-Prove Constitution
@@ -67,6 +76,21 @@ reason, not just a label or a number. Every conformance-harness check result MUS
 plus a one-line reason. This is a demo about trustworthy, inspectable automation — a correct but
 unexplained answer does not satisfy this principle.
 
+### VII. Recurring Architecture Health & Rigorous Pre-Implementation Review
+Per-PR review (Principle III) checks one diff in isolation; it does not catch drift accumulating
+*across* merged PRs. After every 2-3 merged sub-issues, an agent MUST perform a dedicated
+architecture-health pass: re-read `docs/architecture.md` against the current state of `src/`, and
+check for module-boundary violations, duplicated logic that should be shared, contracts that have
+quietly drifted from what's documented, and any accumulated scope creep across the reviewed PRs.
+Findings MUST either be fixed immediately (if small) or filed as a tracked issue (if larger than a
+quick fix), not silently noted and dropped. Separately, for any sub-issue whose design is not
+already fully settled by `docs/architecture.md` (i.e. it would require resolving an open question
+or making a new structural decision), an agent MUST produce a short implementation plan and
+subject it to a rigorous, Socratic pre-implementation review — interviewing the plan relentlessly
+for gaps, unstated assumptions, and untested edge cases, in the spirit of "rubber duck debugging"
+applied before code exists rather than after — before writing implementation code. Issues whose
+design is already fully settled in `docs/architecture.md` MAY skip this pre-implementation review.
+
 ## Scope & Technology Constraints
 
 - **Stack**: Python, `numpy` for numerical/filtering code, `pydantic` for schema validation,
@@ -112,4 +136,4 @@ rejected or amend this constitution explicitly, not silently diverge from it. Us
 `.github/copilot-instructions.md` for routine, runtime development guidance that supports but does
 not override these principles.
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-29 | **Last Amended**: 2026-10-29
+**Version**: 1.2.0 | **Ratified**: 2026-10-29 | **Last Amended**: 2026-10-29
