@@ -37,6 +37,26 @@ autonomous Copilot coding agent) working in this repository. Non-negotiable prin
   manual verification alone unless the criterion explicitly calls for it (e.g. "manual
   verification in ATAK-CIV").
 
+## Before merging a pull request (independent review gate)
+
+Per constitution Principle III: passing CI is necessary but not sufficient. Before merging any PR
+that introduces or changes non-trivial logic (geometry, numerical, statistical, filtering,
+association, or classification code — not pure config/schema/scaffolding), you MUST get an
+independent review of the diff from an agent or person who did not author it, and resolve or
+explicitly accept its findings, before merging. This caught a real, CI-passing, self-tested bug
+(a 180-degree bearing inversion in #5) that the original author's own tests missed entirely.
+
+- If you have access to a dedicated review subagent (e.g. this environment's `code-review` agent
+  type), run it against the PR's diff and address or explicitly dismiss (with reasoning) every
+  finding before merging.
+- If you don't have a review subagent available, request review from GitHub Copilot directly on
+  the PR (`gh pr edit <N> --add-reviewer "@copilot"`) and wait for its review before merging.
+- Record what was reviewed and what was found (or "no findings") in the PR body, so the review
+  step is auditable after the fact, not just a private, unverifiable claim.
+- Do not skip this step because CI is green or because you (the agent) are confident in the
+  change — confidence in your own output is exactly what this step exists to check.
+- Scaffolding, config-only, and documentation-only PRs may skip this gate.
+
 ## Pull request conventions
 
 - Title: short, descriptive, matches the issue title where practical.

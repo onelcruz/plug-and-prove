@@ -1,13 +1,17 @@
 <!--
 Sync Impact Report
-- Version change: (none) → 1.0.0
-- Rationale: Initial ratification. No prior constitution existed (template was unfilled).
-- Modified principles: n/a (first version)
-- Added sections: Core Principles (I-VI), Scope & Technology Constraints, Agentic Development
-  Workflow, Governance
+- Version change: 1.0.0 → 1.1.0
+- Rationale: Principle III materially redefined. Previously stated that passing CI plus a
+  checked acceptance-criteria list was sufficient to merge, explicitly excluding full review.
+  A real bug (180-degree bearing inversion in the scenario simulator, #5) shipped and merged
+  under that rule because the only verification was tests the same author who wrote the
+  implementation also wrote, and CI passed on both. Independent review before merge is now
+  mandatory for any change introducing non-trivial logic.
+- Modified principles: III. Test-First & CI-Gated (expanded)
+- Added sections: none
 - Removed sections: none
-- Templates requiring updates: none pending — plan/spec/tasks templates are generic and
-  already compatible with these principles.
+- Templates requiring updates: .github/copilot-instructions.md (merge workflow),
+  .github/pull_request_template.md (review checklist) — updated in the same change.
 - Follow-up TODOs: none
 -->
 # Plug-and-Prove Constitution
@@ -33,10 +37,15 @@ separate, explicitly-scoped future effort.
 
 ### III. Test-First & CI-Gated
 Every change MUST ship with automated tests (`pytest`), and CI (tests + lint) MUST pass before
-merge. Tests are the objective judge of correctness — passing CI plus a fully checked acceptance
-criteria list is the bar for merging, not a full manual line-by-line review of every change.
-Manual review is reserved for decision points (architecture deviations, foundational/shared code,
-final integration), not routine, narrowly-scoped implementation work.
+merge. Passing CI plus a fully checked acceptance criteria list is necessary, but it is NOT
+sufficient on its own: a PR that introduces or changes non-trivial logic (any geometry, numerical,
+statistical, filtering, association, or classification computation — not pure config/schema/
+scaffolding) MUST also receive an independent review pass before merge, performed by an agent or
+person who did not author the diff being reviewed. Self-authored tests passing is not evidence of
+correctness on its own, because an author's blind spots are typically reproduced in their own
+tests. The review outcome (what was checked, what was found, how it was resolved) MUST be
+recorded in the PR body. Routine, narrowly-scoped, non-algorithmic changes (e.g. scaffolding,
+config schema additions, documentation) MAY skip this independent pass.
 
 ### IV. Narrow, Contract-Bound Changes
 Each issue/PR MUST stay within its assigned module boundary (per the package layout in
@@ -103,4 +112,4 @@ rejected or amend this constitution explicitly, not silently diverge from it. Us
 `.github/copilot-instructions.md` for routine, runtime development guidance that supports but does
 not override these principles.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-29 | **Last Amended**: 2026-10-29
+**Version**: 1.1.0 | **Ratified**: 2026-10-29 | **Last Amended**: 2026-10-29
