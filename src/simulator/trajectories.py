@@ -84,10 +84,13 @@ def generate_drone_trajectory(
     sensors get to track both its approach and recession.
     """
     bearing_rad = math.radians(drone.start_bearing_deg)
-    # Unit vector pointing from the start point toward the center.
-    in_east, in_north = math.sin(bearing_rad), math.cos(bearing_rad)
-    start_east = -in_east * drone.start_range_m
-    start_north = -in_north * drone.start_range_m
+    # Unit vector pointing from the center toward the start position (i.e.
+    # the compass bearing the drone starts at, relative to center).
+    out_east, out_north = math.sin(bearing_rad), math.cos(bearing_rad)
+    start_east = out_east * drone.start_range_m
+    start_north = out_north * drone.start_range_m
+    # The drone flies inbound, i.e. the reverse of the outward direction.
+    in_east, in_north = -out_east, -out_north
 
     total_path_m = 2.0 * drone.start_range_m
     duration_s = total_path_m / drone.speed_mps
@@ -96,7 +99,9 @@ def generate_drone_trajectory(
 
     samples = []
     t_s = 0.0
-    while t_s <= duration_s:
+    n_ticks = math.floor(duration_s / truth_dt_s) + 1
+    for i in range(n_ticks):
+        t_s = min(i * truth_dt_s, duration_s)
         dist_traveled_m = drone.speed_mps * t_s
         east_m = start_east + in_east * dist_traveled_m
         north_m = start_north + in_north * dist_traveled_m
@@ -106,7 +111,6 @@ def generate_drone_trajectory(
         samples.append(
             TruthSample(t_s=t_s, lat=lat, lon=lon, alt_m=drone.altitude_m + alt_jitter_m)
         )
-        t_s += truth_dt_s
 
     return TruthObject(object_id=drone.target_id, kind="drone", samples=tuple(samples))
 

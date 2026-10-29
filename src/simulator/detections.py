@@ -13,6 +13,8 @@ buggy third adapter in issue #8), not the simulator's.
 
 from __future__ import annotations
 
+import math
+
 from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 
 from src.config.models import ScenarioConfig, SensorConfig
@@ -54,10 +56,11 @@ def generate_sensor_detections(
     """
     sensor_lat, sensor_lon = _sensor_position(sensor, scenario)
     dt_s = 1.0 / sensor.update_rate_hz
+    n_ticks = math.floor(scenario.duration_s / dt_s) + 1
 
     detections: list[RawDetection] = []
-    t_s = 0.0
-    while t_s <= scenario.duration_s:
+    for i in range(n_ticks):
+        t_s = min(i * dt_s, scenario.duration_s)
         for obj in truth_objects:
             sample = obj.position_at(t_s)
             if sample is None:
@@ -86,7 +89,5 @@ def generate_sensor_detections(
                     accuracy_m=sensor.accuracy_m,
                 )
             )
-
-        t_s += dt_s
 
     return detections

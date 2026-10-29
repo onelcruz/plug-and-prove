@@ -18,6 +18,22 @@ def test_drone_trajectory_reproducible():
     assert a.samples == b.samples
 
 
+def test_drone_trajectory_starts_at_configured_bearing():
+    # Regression test for a bug (caught in independent code review of #5)
+    # where start position was placed 180deg opposite the configured bearing.
+    # bearing 0 = north (+lat), 90 = east (+lon), 180 = south (-lat), 270 = west (-lon).
+    east_drone = DroneTarget(
+        target_id="d1", start_bearing_deg=90, start_range_m=2000, speed_mps=20, altitude_m=100
+    )
+    north_drone = DroneTarget(
+        target_id="d2", start_bearing_deg=0, start_range_m=2000, speed_mps=20, altitude_m=100
+    )
+    east_first = generate_drone_trajectory(get_rng(1), AREA, east_drone).samples[0]
+    north_first = generate_drone_trajectory(get_rng(1), AREA, north_drone).samples[0]
+    assert east_first.lon > AREA.center_lon  # starts east of center
+    assert north_first.lat > AREA.center_lat  # starts north of center
+
+
 def test_drone_trajectory_approaches_then_recedes_from_center():
     drone = DroneTarget(
         target_id="d1", start_bearing_deg=0, start_range_m=2000, speed_mps=20, altitude_m=100

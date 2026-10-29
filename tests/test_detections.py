@@ -52,6 +52,22 @@ def test_dropout_always_drops_at_probability_one():
     assert detections == []
 
 
+def test_tick_count_exact_for_non_binary_exact_rate():
+    # Regression test (caught in independent code review of #5): 7 Hz over a
+    # 10s duration has a non-exact-binary dt (1/7), which previously caused
+    # float accumulation drift (`t_s += dt_s` repeatedly) to silently skip the
+    # final in-spec tick. Tick-index-based computation must not drop it.
+    obj = _stationary_object(0.001, 0.001)
+    sensor = SensorConfig(
+        sensor_id="s1", accuracy_m=1, range_m=5000, update_rate_hz=7, dropout_probability=0.0
+    )
+    detections = generate_sensor_detections(sensor, SCENARIO, [obj], get_rng(1))
+    # floor(10 / (1/7)) + 1 = floor(70) + 1 = 71 ticks, inclusive of t=0 and t=10.
+    assert len(detections) == 71
+    assert detections[-1].t_s == 10.0
+
+
+
 def test_dropout_never_drops_at_probability_zero():
     obj = _stationary_object(0.001, 0.001)
     sensor = SensorConfig(
