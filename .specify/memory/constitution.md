@@ -1,50 +1,106 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+Sync Impact Report
+- Version change: (none) → 1.0.0
+- Rationale: Initial ratification. No prior constitution existed (template was unfilled).
+- Modified principles: n/a (first version)
+- Added sections: Core Principles (I-VI), Scope & Technology Constraints, Agentic Development
+  Workflow, Governance
+- Removed sections: none
+- Templates requiring updates: none pending — plan/spec/tasks templates are generic and
+  already compatible with these principles.
+- Follow-up TODOs: none
+-->
+# Plug-and-Prove Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Architecture-First Reference
+`docs/architecture.md` is the single authoritative source of truth for system design. Every
+sub-issue MUST be implemented consistent with the components, contracts, and data flow it
+describes. If an implementation needs to deviate from or resolve an open question in that
+document (see its §13 Open Questions), the same pull request MUST update the document. Agents
+and contributors MUST read the relevant section(s) before writing code for an issue; the
+architecture doc is read before the issue body is treated as sufficient context on its own.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### II. Offline & Simulated Only (NON-NEGOTIABLE)
+This project is a simulated demonstration, not a production system. It MUST run fully offline on
+a single machine: no cloud services, no network reachback beyond a local UDP send to a TAK
+client, and no RF emissions. It MUST use only simulated or public data — never real sensors, real
+drones, or real effector/defeat-system control. Any recommendation or cue record produced is for
+logging/display only. Any change that would require real hardware, cloud infrastructure, or
+network reachback to function is out of scope and MUST be rejected or deferred to a clearly
+separate, explicitly-scoped future effort.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### III. Test-First & CI-Gated
+Every change MUST ship with automated tests (`pytest`), and CI (tests + lint) MUST pass before
+merge. Tests are the objective judge of correctness — passing CI plus a fully checked acceptance
+criteria list is the bar for merging, not a full manual line-by-line review of every change.
+Manual review is reserved for decision points (architecture deviations, foundational/shared code,
+final integration), not routine, narrowly-scoped implementation work.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### IV. Narrow, Contract-Bound Changes
+Each issue/PR MUST stay within its assigned module boundary (per the package layout in
+`docs/architecture.md` §2) and its own stated acceptance criteria. Scope creep into another
+issue's territory is prohibited — if a gap is discovered, file or update a separate issue rather
+than expanding the current one. Components MUST interact only through their documented contracts
+(e.g. the `SensorAdapter` interface, the `Detection` schema, the `OutputAdapter` interface) so
+that swapping or extending one component never requires changing another.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### V. Reproducibility
+All randomness MUST flow through the project's single seeded RNG utility. Given the same seed and
+configuration, a run MUST produce identical ground truth, detections, tracks, and classifications
+across executions. Every component that introduces stochastic behavior MUST have a test asserting
+this property.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+### VI. Explainability
+Every track, classification, and recommendation the system produces MUST carry a human-readable
+reason, not just a label or a number. Every conformance-harness check result MUST state pass/fail
+plus a one-line reason. This is a demo about trustworthy, inspectable automation — a correct but
+unexplained answer does not satisfy this principle.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+## Scope & Technology Constraints
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+- **Stack**: Python, `numpy` for numerical/filtering code, `pydantic` for schema validation,
+  `pytest` for testing. New dependencies MUST be justified against this demo's small scope and
+  time budget before being added.
+- **Tracking**: a hand-rolled constant-velocity Kalman filter, not a third-party tracking
+  framework (e.g. Stone Soup), per the locked decision in `docs/architecture.md` §12.
+- **TAK output**: direct Cursor-on-Target (CoT) over UDP to a single TAK client (ATAK-CIV or
+  WinTAK). No FreeTAKServer and no public/Azure-hosted web version are in scope for this epic;
+  the output layer MUST remain swappable so these can be added later as separate efforts without
+  modifying upstream components.
+- **Provenance**: all code is original work, built on personal equipment and personal time, using
+  only simulated or public data. No code, data, or designs from any employer or customer program.
+  No JAUS / RAS-G IOP messages, documents, or any other export-controlled or paid standards
+  content.
+- **No production hardening**: this is a demo artifact. Security accreditation, multi-user
+  support, and production-grade operational hardening are explicitly out of scope.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+## Agentic Development Workflow
+
+- GitHub issues are the unit of work and the coordination mechanism between agents and sessions.
+  Every PR MUST reference the issue it implements (e.g. `Closes #N`) and explicitly check off
+  which acceptance criteria it satisfies.
+- Issues carry explicit `Blocked by` dependencies. An agent MUST NOT begin work on a blocked issue
+  until its blockers are merged, but independent, unblocked issues MAY be worked in parallel by
+  separate agents/sessions, provided they touch disjoint modules per the architecture's package
+  layout.
+- Any design decision an agent makes that resolves an open question in `docs/architecture.md`
+  §13, or that deviates from the documented design, MUST be written back into that document in the
+  same PR — so later issues inherit the decision instead of re-deciding it.
+- Day-to-day operating instructions for coding agents (how to run tests, commit conventions, PR
+  expectations) live in `.github/copilot-instructions.md`. This constitution defines the
+  non-negotiable principles; that file defines the runtime mechanics for following them.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes ad hoc practices and informal conventions for this project.
+Amendments require updating this file with an incremented version (MAJOR for incompatible
+principle removals/redefinitions, MINOR for new or materially expanded principles/sections, PATCH
+for clarifications/wording) and a Sync Impact Report describing the change. Every PR is expected
+to be consistent with these principles; a PR that cannot be made consistent MUST either be
+rejected or amend this constitution explicitly, not silently diverge from it. Use
+`.github/copilot-instructions.md` for routine, runtime development guidance that supports but does
+not override these principles.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+**Version**: 1.0.0 | **Ratified**: 2026-10-29 | **Last Amended**: 2026-10-29
