@@ -40,10 +40,12 @@ editing §12 or §13, it was unsettled, and should have been caught before codin
 For any issue classified unsettled, before writing implementation code:
 
 1. `/speckit-specify` → write `specs/<issue-number>-<slug>/spec.md` (what & why, grounded in the
-   issue and `docs/architecture.md`). By default Spec Kit auto-numbers the feature directory
-   sequentially (`001-...`, `002-...`), not by issue number — explicitly pass
-   `SPECIFY_FEATURE_DIRECTORY=specs/<issue-number>-<slug>` when invoking the command so the
-   folder is keyed to the GitHub issue, not a separate sequence.
+   issue and `docs/architecture.md`). By default, feature-directory creation
+   (`.specify/scripts/bash/create-new-feature.sh`) auto-numbers sequentially, not by issue number
+   — invoke it with `--number <issue-number> --short-name <slug>` (zero-padded automatically,
+   e.g. issue #6 → `006-<slug>`) so the folder is keyed to the GitHub issue. Note: if that number
+   collides with an existing spec directory, the script auto-renumbers and prints a warning —
+   confirm the resulting directory name still matches before continuing.
 2. `/speckit-plan` → write `plan.md` in the same folder (how, concretely).
 3. Run the `rubber-duck` pre-implementation review (or equivalent) against `plan.md` — interview
    it relentlessly for gaps, unstated assumptions, and untested edge cases. Resolve or explicitly
