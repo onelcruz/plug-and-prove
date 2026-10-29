@@ -62,6 +62,19 @@ questions in §13 — test-record files are small and are part of the demo's evi
 keeping them in version control by default is simpler than adding a separate export step. This
 can be revisited if `runs/` grows large.
 
+**Resolved during implementation (issue #5):** `ScenarioConfig` gained `duration_s` and
+`drones`/`birds`/`clutter` lists (`DroneTarget`, `BirdTarget`, `ClutterConfig` models in
+`src/config/models.py`) so target generation is fully YAML-driven, and `SensorConfig` gained
+optional `lat`/`lon` (defaulting to the defended area's center when omitted, so existing sensor
+configs remain valid unchanged). The simulator itself (`src/simulator/trajectories.py`,
+`detections.py`, `scenario.py`) generates ground truth and per-sensor raw detections using a
+simple flat-earth meters approximation (`src/simulator/geo.py`) — the same "small area" premise
+as the fusion engine's internal ENU frame in §3.2, but applied here purely for simulation, not
+exposed outside it. Raw detections use `t_s` (seconds since scenario start), not a UTC epoch
+timestamp — converting to `timestamp_utc` (and optionally introducing a clock-offset bug) is
+left to the adapter layer in #6/#8, consistent with the conformance harness owning
+timestamp/clock-offset validation (§4).
+
 ## 3. The sensor adapter contract
 
 This is the extensibility seam: **adding a new sensor means writing one adapter module + one config entry — no changes to the harness, fusion engine, classifier, or output layer.**

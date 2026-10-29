@@ -1,8 +1,27 @@
-# Example scenario config (architecture.md §2). Extended in issue #5 with
-# full target/bird/clutter generation parameters.
+# Example scenario config (architecture.md §2). One drone approaches the
+# defended area, one bird loiters nearby, and random clutter is scattered
+# throughout -- enough variety to exercise all three ground-truth generators.
 name: baseline-demo
 seed: 42
+duration_s: 180
 defended_area:
   center_lat: 38.8895
   center_lon: -77.0353
   radius_m: 2000
+drones:
+  - target_id: drone-1
+    start_bearing_deg: 45
+    start_range_m: 3000
+    speed_mps: 15
+    altitude_m: 120
+birds:
+  - target_id: bird-1
+    start_lat: 38.8920
+    start_lon: -77.0300
+    speed_mps: 6
+    altitude_m: 40
+    heading_change_period_s: 4
+clutter:
+  count: 10
+  altitude_m: 60
+  dwell_s: 1.0
