@@ -98,7 +98,6 @@ def generate_drone_trajectory(
     alt_jitter_m = rng.normal(0.0, 2.0)
 
     samples = []
-    t_s = 0.0
     n_ticks = math.floor(duration_s / truth_dt_s) + 1
     for i in range(n_ticks):
         t_s = min(i * truth_dt_s, duration_s)
