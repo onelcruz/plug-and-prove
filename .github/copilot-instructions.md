@@ -11,9 +11,50 @@ autonomous Copilot coding agent) working in this repository. Non-negotiable prin
    decisions, and open questions. Do not re-derive architecture that is already decided there.
 2. Read the GitHub issue you're implementing in full, including its `Blocked by` line and
    acceptance criteria. Do not start an issue whose blockers aren't merged yet.
-3. Stay inside your issue's module boundary (per `docs/architecture.md` §2's package layout) and
+3. Classify the issue as **settled** or **unsettled** (see "Settled vs. unsettled" below) and say
+   which rule fired in chat before proceeding. If unsettled, follow the "specs/ workflow" below
+   before writing implementation code.
+4. Stay inside your issue's module boundary (per `docs/architecture.md` §2's package layout) and
    its stated acceptance criteria. If you find related work that's out of scope, note it as a new
    issue instead of expanding the current one.
+
+## Settled vs. unsettled (per constitution Principle VII)
+
+Before claiming a sub-issue, check it against `docs/architecture.md`. It is **unsettled** if any
+of the following is true:
+
+1. It requires resolving a bullet explicitly listed in §13 (Open questions / risks).
+2. It would add or change a row in §12 (Key design decisions, locked) — a genuine choice between
+   real alternatives, not an implementation detail.
+3. A component's interface, schema, algorithm, or threshold it depends on isn't fully pinned down
+   in §2-§11 — you'd have to invent the missing part.
+4. Two competent engineers implementing the same acceptance criteria could reasonably produce
+   materially different, non-interchangeable designs.
+
+Otherwise it's **settled** — every acceptance criterion already maps onto something
+`docs/architecture.md` fully specifies. Sharp retroactive check: if merging the PR would require
+editing §12 or §13, it was unsettled, and should have been caught before coding started.
+
+## The specs/ workflow (unsettled issues only)
+
+For any issue classified unsettled, before writing implementation code:
+
+1. `/speckit-specify` → write `specs/<issue-number>-<slug>/spec.md` (what & why, grounded in the
+   issue and `docs/architecture.md`).
+2. `/speckit-plan` → write `plan.md` in the same folder (how, concretely).
+3. Run the `rubber-duck` pre-implementation review (or equivalent) against `plan.md` — interview
+   it relentlessly for gaps, unstated assumptions, and untested edge cases. Resolve or explicitly
+   accept every question raised before moving on.
+4. `/speckit-tasks` → write `tasks.md` in the same folder; implement against it.
+5. Commit all three files — they are a permanent record and MUST NOT be deleted, even after the
+   issue is closed. They hold the full reasoning trail so `docs/architecture.md` doesn't have to;
+   only add a short pointer/summary there, not the full spec/plan content.
+6. The PR implementing the issue MUST link the `specs/<issue-number>-<slug>/` folder.
+
+Settled issues skip this entirely — implement directly against the issue and
+`docs/architecture.md`, as before. This is deliberate: running the full pipeline on settled issues
+dilutes its value through overuse. This workflow applies going forward only; #4 and #5 were not
+retroactively given `specs/` folders.
 
 ## While implementing
 
@@ -73,19 +114,8 @@ one and do a dedicated architecture-health check-in (not tied to any single PR's
 
 ## Rigorous pre-implementation review ("rubber-duck")
 
-Per constitution Principle VII: before writing implementation code for any sub-issue whose design
-is **not** already fully settled by `docs/architecture.md` (i.e. it requires resolving an open
-question from §13, or making a new structural decision not already locked in), write a short
-implementation plan first and subject it to a rigorous Socratic pre-implementation review (the
-`rubber-duck` agent type in this environment, or an equivalent independent design-review pass if
-unavailable). This is an *interview*, not a light skim: it should relentlessly probe for unstated
-assumptions, gaps the plan doesn't address, and untested edge cases, the same way you'd interview
-a plan before trusting it with real stakes. Resolve or explicitly accept every question it raises
-before starting implementation.
-
-Issues whose design is already fully settled by `docs/architecture.md` (most of #6-#13 are, per
-the existing package layout and contracts) MAY skip this step — don't dilute it by running it on
-settled designs where there's nothing left to question.
+See "The specs/ workflow (unsettled issues only)" above — the `rubber-duck` interview of `plan.md`
+is step 3 of that workflow and is required for every unsettled sub-issue.
 
 ## Pull request conventions
 

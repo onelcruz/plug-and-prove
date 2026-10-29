@@ -1,26 +1,21 @@
 <!--
 Sync Impact Report
-- Version change: 1.1.0 → 1.2.0
-- Rationale: Added a new principle (VII) requiring a recurring, dedicated architecture-health
-  review pass (not just per-PR review) and raised the rigor bar for pre-implementation design
-  review ("rubber-duck") on issues with open design questions, to a relentless/Socratic
-  interview standard rather than a light pass. Adopted after comparing this project's process
-  against an external AI-agent workflow (Matt Pocock / AI Hero's 5-skill pipeline) and
-  deliberately declining its strict test-first/TDD practice and its vertical-slice ticket
-  structure, both evaluated and rejected for this project (see decision log below).
-- Modified principles: none redefined
-- Added sections: VII. Recurring Architecture Health & Rigorous Pre-Implementation Review
+- Version change: 1.2.0 → 1.3.0
+- Rationale: Principle VII materially expanded. Previously "unsettled design" was left to an
+  agent's unstructured judgment, with no written rule. Replaced with a concrete, checkable
+  4-rule classification an agent MUST apply and state out loud before claiming any sub-issue.
+  Added a requirement that every unsettled sub-issue gets a permanent, scoped, per-issue
+  `specs/<issue-number>-<slug>/{spec,plan,tasks}.md` artifact trail (using Spec Kit's
+  spec/plan/tasks structure), committed and never deleted — closing a gap where the only two
+  places a design decision could live were an ephemeral issue/PR thread or a permanently-growing
+  `docs/architecture.md`, with nothing scoped in between. Explicitly applies going forward only;
+  #4 and #5 are not backfilled.
+- Modified principles: VII. Recurring Architecture Health & Rigorous Pre-Implementation Review
+  (expanded: concrete settled/unsettled rule, specs/ artifact requirement)
+- Added sections: none
 - Removed sections: none
-- Templates requiring updates: .github/copilot-instructions.md (architecture-health cadence and
-  rubber-duck procedure) — updated in the same change.
-- Decision log (external workflow comparison, 2026-10-29): evaluated adopting Matt Pocock's
-  grill-me/to-spec/to-tickets/tdd/improve-codebase-architecture pipeline wholesale. Adopted: a
-  recurring architecture-health pass, and a stricter pre-code design-interview standard. Declined:
-  strict test-first/TDD (tests continue to be written alongside/after implementation, per existing
-  Principle III). Declined: re-slicing issues #6-#13 into vertical tracer-bullet tickets (the
-  horizontal, by-architectural-layer decomposition is retained, because this epic's core claim —
-  a new sensor adapter plugs in without touching core/fusion/display code — is best demonstrated
-  by cleanly separated layer boundaries, which a vertical-slice-first structure would undercut).
+- Templates requiring updates: .github/copilot-instructions.md (settled/unsettled checklist,
+  specs/ workflow steps) — updated in the same change.
 - Follow-up TODOs: none
 -->
 # Plug-and-Prove Constitution
@@ -83,13 +78,43 @@ architecture-health pass: re-read `docs/architecture.md` against the current sta
 check for module-boundary violations, duplicated logic that should be shared, contracts that have
 quietly drifted from what's documented, and any accumulated scope creep across the reviewed PRs.
 Findings MUST either be fixed immediately (if small) or filed as a tracked issue (if larger than a
-quick fix), not silently noted and dropped. Separately, for any sub-issue whose design is not
-already fully settled by `docs/architecture.md` (i.e. it would require resolving an open question
-or making a new structural decision), an agent MUST produce a short implementation plan and
-subject it to a rigorous, Socratic pre-implementation review — interviewing the plan relentlessly
+quick fix), not silently noted and dropped.
+
+Separately, before claiming any sub-issue, an agent MUST classify it as **settled** or
+**unsettled** against `docs/architecture.md`, and state that classification (and which rule fired)
+in chat before proceeding. A sub-issue is **unsettled** if any of the following is true:
+
+1. Implementing it requires resolving a bullet explicitly listed in `docs/architecture.md` §13
+   (Open questions / risks).
+2. Implementing it would add or change a row in `docs/architecture.md` §12 (Key design decisions,
+   locked) — i.e. it requires genuinely choosing between two or more real alternatives, not
+   selecting internal implementation detail.
+3. A component's interface, schema, algorithm, or threshold that the issue depends on is not
+   fully pinned down in `docs/architecture.md` §2-§11 — the missing part would have to be invented.
+4. Two competent engineers implementing the same acceptance criteria could reasonably produce
+   materially different, non-interchangeable designs.
+
+A sub-issue is **settled** only if every acceptance criterion already maps onto something
+`docs/architecture.md` fully specifies, with no remaining decision beyond implementation detail.
+A sharp retroactive check on the same rule: if merging the issue's PR requires editing §12 or §13,
+it was unsettled, and that should have been caught before implementation began, not after.
+
+For every **unsettled** sub-issue, an agent MUST, before writing implementation code: write a
+`spec.md` (what & why) and a `plan.md` (how, concretely) under `specs/<issue-number>-<slug>/`,
+subject `plan.md` to a rigorous, Socratic pre-implementation review — interviewing it relentlessly
 for gaps, unstated assumptions, and untested edge cases, in the spirit of "rubber duck debugging"
-applied before code exists rather than after — before writing implementation code. Issues whose
-design is already fully settled in `docs/architecture.md` MAY skip this pre-implementation review.
+applied before code exists rather than after — and write a `tasks.md` in the same folder to
+implement against. These files are committed to the repository and MUST NOT be deleted once
+written; they are the permanent, per-issue record of what was decided and why, scoped separately
+from `docs/architecture.md` so that document records only the current, locked state of the design
+rather than accumulating every issue's full reasoning trail. The PR implementing the issue MUST
+link the `specs/<issue-number>-<slug>/` folder, and `docs/architecture.md` MUST be updated with
+only a short pointer/summary of the resulting decision, not the full spec/plan content.
+**Settled** sub-issues MAY skip the spec/plan/rubber-duck sequence entirely and proceed straight
+to implementation against the issue and `docs/architecture.md` as before — applying this process
+to settled issues is deliberately out of scope, to avoid diluting its value through overuse. This
+`specs/` requirement applies going forward only; sub-issues merged before this principle was
+adopted (#4, #5) are not backfilled.
 
 ## Scope & Technology Constraints
 
@@ -136,4 +161,4 @@ rejected or amend this constitution explicitly, not silently diverge from it. Us
 `.github/copilot-instructions.md` for routine, runtime development guidance that supports but does
 not override these principles.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-29 | **Last Amended**: 2026-10-29
+**Version**: 1.3.0 | **Ratified**: 2026-10-29 | **Last Amended**: 2026-10-29
