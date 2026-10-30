@@ -6,14 +6,18 @@
 
 ## Summary
 
-Define the canonical `Detection` pydantic model and `SensorAdapter` protocol (architecture.md
-§3.1-§3.3), implement two concrete adapters translating sensor 1 and sensor 2's existing
-`RawDetection` output (from #5, `src/simulator/detections.py`) into `Detection` objects, and
-resolve the open heartbeat/liveness design question (§13) by extending `SensorConfig` with a
-`heartbeat_timeout_s` field and emitting an explicit `Heartbeat` message (not inferred adapter
-instance state) for any scheduled tick with no matching `RawDetection` — see "Heartbeat design
-decision" below for the full reasoning, rejected alternatives, and the honestly-scoped limitation
-this issue does *not* solve (detecting a genuinely silent/failed sensor, deferred to #7).
+Define the canonical `Detection`/`Heartbeat` pydantic messages and `SensorAdapter` protocol
+(architecture.md §3.1-§3.3), implement two concrete adapters over one shared `translate()`
+implementation — bound to sensor 1's existing config and a newly-created sensor 2 config
+respectively (not two copies of the translation logic) — translating `RawDetection` output (from
+#5, `src/simulator/detections.py`) into `Detection`/`Heartbeat` objects, and resolve the open
+heartbeat/liveness design question (§13) by extending `SensorConfig` with a `heartbeat_timeout_s`
+field and emitting an explicit `Heartbeat` message (not inferred adapter instance state) for any
+scheduled tick with no matching `RawDetection` — see "Heartbeat design decision" below for the
+full reasoning, rejected alternatives, and the honestly-scoped limitation this issue does *not*
+solve (detecting a genuinely silent/failed sensor, deferred to #7). `Heartbeat` shares `Detection`'s
+`timestamp_utc` time base (not simulator-relative `t_s` alone), and fusion never receives
+`Heartbeat` entries — only the harness does.
 
 ## Technical Context
 
@@ -88,7 +92,7 @@ orchestrator-driven per-tick invocation API.
 
 Concretely:
 - `SensorConfig` gains `heartbeat_timeout_s: PositiveFloat`, with a model validator enforcing
-  `heartbeat_timeout_s >= 1 / update_rate_hz` (a tick's worth of slack, at minimum). Without this,
+  `heartbeat_timeout_s > 1 / update_rate_hz` (a tick's worth of slack, at minimum). Without this,
   the field would be decorative: a consumer could configure, say, `update_rate_hz=0.1` (one
   scheduled tick every 10s) with `heartbeat_timeout_s=1`, and architecture.md §3.4's "within
   `heartbeat_timeout_s`" requirement would be violated by construction on *every* idle tick, by a
@@ -110,7 +114,10 @@ Concretely:
   enumeration index): if one or more `RawDetection`s exist at that `t_s` — grouped in the stable
   order they appear in the input `raw_detections` list — emit a `Detection` per raw detection; if
   none exist (whether because no target was in range, no target existed, *or*
-  `dropout_probability` dropped it), emit exactly one `Heartbeat(sensor_id, t_s)` instead.
+  `dropout_probability` dropped it), emit exactly one
+  `Heartbeat(sensor_id=sensor.sensor_id, timestamp_utc=start_utc + t_s, t_s=t_s)` instead — using
+  the identical `start_utc + t_s` conversion `Detection.timestamp_utc` uses, so `Heartbeat` and
+  `Detection` share one time base (fixed after the opus-pinned review — see disposition item 31).
   **Precise, input-observable semantics (tightened after rubber-duck review #3 — avoid overclaiming
   what's actually knowable)**: a `Heartbeat` means only "`translate()` received no `RawDetection`
   for this nominal scheduled tick." It does **not** establish *why* (no target, out of range, or
@@ -149,11 +156,15 @@ delivers the `Detection`/`Heartbeat` schema and two conformant adapters per arch
 §3.1-§3.4; it does **not** deliver real sensor-failure detection, and User Story 3 / FR-006 below
 are revised to state that boundary explicitly rather than imply a capability that doesn't exist.
 
-**Why this is now consistent with architecture.md §3.4 (locked wording)**: §3.4 already states an
-adapter "must emit a `Detection` (or an explicit heartbeat/liveness signal...) within
-`heartbeat_timeout_s`." The revised design emits a literal, named `Heartbeat` signal — satisfying
-that wording directly, rather than requiring an architectural amendment to §3.4 (as the
-cadence/instance-state design from the first draft of this plan would have needed).
+**Why this is now consistent with architecture.md §3.4's structure (wording to be refined, not
+replaced)**: §3.4 already states an adapter "must emit a `Detection` (or an explicit
+heartbeat/liveness signal...) within `heartbeat_timeout_s`." The revised design emits a literal,
+named `Heartbeat` signal, satisfying the *emission* half of that sentence directly. **However**,
+§3.4's trailing clause — "or the harness/fusion engine treats it as dead" — names fusion as a
+consumer of the dead/alive determination, which conflicts with the Consumer boundary decision
+above (fusion never receives `Heartbeat`, only the harness does). This is a genuine wording
+conflict requiring an actual §3.4 edit, not just a §13 pointer — see "Architecture doc update"
+below and disposition item 29 (added after the opus-pinned review caught this still unresolved).
 
 **Alternative considered and rejected (original plan draft, reversed after review)**: deriving
 liveness purely from adapter instance state (`last_seen_at(t_s)`), with the orchestrator calling
@@ -177,9 +188,11 @@ run before implementation began. It raised 12 points; this is the disposition of
 2. **(Blocking, resolved)** Instance state wasn't observable by a batch-evaluating harness —
    resolved by making `Heartbeat` an explicit, emitted entry in the same returned list as
    `Detection`, fully observable from the completed output alone.
-3. **(Blocking, resolved)** First draft conflicted with §3.4's locked "must emit... a signal"
-   wording — resolved by actually emitting a named `Heartbeat` signal; no architecture.md §3.4
-   amendment needed, only §13's pointer update.
+3. **(Blocking, resolved — revised again at item 29)** First draft conflicted with §3.4's locked
+   "must emit... a signal" wording — resolved by actually emitting a named `Heartbeat` signal.
+   (Original note here said "no architecture.md §3.4 amendment needed, only §13's pointer update"
+   — **this was wrong**; see item 29 for why §3.4 itself does need an edit, caught by the
+   opus-pinned review after this item had been marked resolved for 3 prior rounds.)
 4. **(Blocking, resolved)** Startup (`t_s=0`) and cadence-tolerance semantics were undefined with
    instance state — resolved: ticks are an exact, independently-computed formula on both sides, so
    there is no "first poll" ambiguity or floating-point tolerance question; `t_s=0` is tick `i=0`,
@@ -279,7 +292,7 @@ and 3 non-blocking points:
     1s timeout) would violate architecture.md §3.4's "within `heartbeat_timeout_s`" requirement by
     construction, on every idle tick, with no way for the adapter to emit faster than its own
     schedule allows. Resolved: `SensorConfig` gains a model validator requiring
-    `heartbeat_timeout_s >= 1 / update_rate_hz`, rejected at config-load time rather than
+    `heartbeat_timeout_s > 1 / update_rate_hz`, rejected at config-load time rather than
     discovered later as a harness check failure.
 19. **(Blocking, resolved)** Residual overclaiming: the design and disposition item 5 described a
     `Heartbeat` as meaning the sensor was "alive" / "functioning normally," which is exactly the
@@ -356,6 +369,118 @@ evidence (recorded as item 26):
     timestamp/ID determinism tests are required reproducibility evidence, not optional schema
     tests.
 
+A **fifth** review was run — per explicit user decision, as a separate agent pinned to an
+opus-tier model (see `.github/copilot-instructions.md`'s "Agent roles and model assignment"),
+specifically to re-check the prior 4 rounds' claimed resolutions against the actual current text,
+not just trust their own "resolved" labels. It found that one claimed resolution (item 3) was
+itself stale, plus 2 more new blocking issues and 5 non-blocking issues:
+
+29. **(Blocking, resolved)** Architecture.md §3.4's locked wording ends "...or the
+    **harness/fusion engine** treats it as dead" — naming fusion as a consumer of the dead/alive
+    determination. This directly conflicts with the Consumer boundary decision (disposition item
+    23: fusion never receives `Heartbeat`). Item 3 above had wrongly claimed "no §3.4 amendment
+    needed" three rounds ago, and that stale claim survived unnoticed until this review actually
+    re-checked it against the current design rather than trusting the old label. **Resolved**: the
+    "Architecture doc update" section below now requires an actual §3.4 text edit (not just a §13
+    pointer) dropping "fusion engine" from that clause — dead-sensor handling is the harness's job
+    alone, consistent with FR-012.
+30. **(Blocking, resolved)** `config/sensors/example_sensor.yaml` defines only `sensor-1`; there
+    is no `sensor-2` config anywhere in the repo (the only "sensor-2" is a `model_copy` created
+    inline in `tests/test_scenario.py`, not a real config). The plan's spec.md Assumptions
+    incorrectly claimed sensor 2's config was "reused as-is." Worse, nothing in the plan said what
+    would actually differ between `sensor1.py` and `sensor2.py` — since `translate()` takes
+    `sensor: SensorConfig` as a parameter, two adapters calling the identical logic would be the
+    same function duplicated twice, which Principle VII's architecture-health pass exists to
+    catch. **Resolved**:
+    - A real `config/sensors/sensor_2.yaml` is added, with a distinct `update_rate_hz`,
+      `accuracy_m`, and position from sensor 1's, so the two sensors are genuinely different
+      configurations, not a copy-paste.
+    - The code shape is now explicit: `translate()` is one shared, generic function living in
+      `src/adapters/base.py`; `sensor1.py` and `sensor2.py` are thin named bindings (e.g. a
+      `SENSOR_1_ADAPTER = SensorAdapter(translate=translate)`-style registration, or equivalently
+      simple module-level re-exports) that exist to satisfy FR-002's "every adapter is reachable
+      by name" requirement and to give #13's orchestration something per-sensor to wire up — not
+      because the translation logic itself differs per sensor. This is stated plainly rather than
+      implied, so an implementer doesn't have to guess whether to duplicate logic.
+31. **(Blocking, resolved)** `Heartbeat` was specified as `Heartbeat(sensor_id, t_s)` — carrying
+    only simulator-relative `t_s`, while `Detection` carries `timestamp_utc`. This means the two
+    message types wouldn't share a time base: #8's clock-offset adapter would get correct
+    `Heartbeat` times (no conversion needed) and buggy `Detection` times (as intended), but any
+    consumer trying to reason about cadence across both types (the Known limitation's own
+    recommendation, and the §4 check 5 ambiguity at item 24) would be mixing two different clocks
+    silently. It also conflicts with architecture.md §3.3's requirement that message schemas make
+    sense "as if sent over a network" — a simulator-relative `t_s` doesn't travel. **Resolved**:
+    `Heartbeat` gains `timestamp_utc`, computed by the exact same `start_utc + t_s` conversion
+    `Detection` uses (one shared helper, not two independent implementations — avoiding yet
+    another duplicated-formula risk). `Heartbeat.t_s` is kept alongside it, explicitly labeled
+    informational/debugging only (matching `Detection.raw_payload`'s existing "debugging only"
+    convention from §3.1), not a contract field any consumer should rely on for timing logic.
+32. **(Non-blocking, resolved)** The `heartbeat_timeout_s >= 1/update_rate_hz` validator (item 18)
+    allows a config where the comparison is satisfied only by floating-point luck at the exact
+    boundary — a config with `heartbeat_timeout_s == 1/update_rate_hz` passes construction but
+    could fail a strict `gap <= timeout` check downstream (#7) due to ordinary float64 rounding in
+    repeated addition. **Resolved**: the validator now requires strict headroom —
+    `heartbeat_timeout_s > 1/update_rate_hz` (not `>=`) — removing the boundary-equality case
+    entirely rather than trying to pick a numeric tolerance. Noted for #7: any cadence check it
+    implements should still use a small tolerance (not exact equality) when comparing timestamps,
+    since float64 arithmetic on seconds-since-epoch values doesn't guarantee exact results.
+33. **(Non-blocking, resolved — scoped as a §13 question rather than a false claim)** Disposition
+    item 9 asserted `scenario.start_utc` is "trivially handed off" to the harness as its
+    clock-offset reference — but the harness's check 4 needs each detection's true *simulator*
+    time (`t_s`) to compute an offset, and `Detection` has no field for it other than
+    `raw_payload` (marked "debugging only" in §3.1) or decoding it back out of `detection_id`
+    (which would make the ID format a hidden, undocumented contract). **Resolved**: item 9's
+    "trivially handed off" claim is retracted as overstated; this plan does not invent a new
+    `Detection` field to solve it, since that's arguably #7/#8's design decision, not #6's.
+    Recorded as a new architecture.md §13 open question instead (see "Architecture doc update"):
+    whether `raw_payload`'s `t_s` becomes a load-bearing contract field for the harness, or
+    `Detection` needs an explicit simulator-time field after all.
+34. **(Non-blocking, resolved)** The plan's proposed architecture.md §13 wording for check 5
+    (added at disposition item 24: "measure cadence across `Detection | Heartbeat`") was itself
+    unsound — `Heartbeat` entries are generated directly from `update_rate_hz`, so measuring
+    cadence over a stream that includes them would just check the config against itself; any
+    compliant adapter using `expected_ticks()` would trivially always pass, which is the same
+    "can't actually fail" weakness the Known limitation already admits for check 6. **Resolved**:
+    the "Architecture doc update" section below no longer prescribes that approach — it now
+    records check 5's ambiguity as an open question for #7 to actually solve, without steering it
+    toward an answer that's been shown not to work.
+35. **(Non-blocking, resolved)** Two contradictions around tests and defaults:
+    - The `expected_ticks()` extraction was described as behavior-preserving with "existing #5
+      tests must still pass unmodified," while the Project Structure section separately lists
+      `tests/test_detections.py` as needing updates for the new required fields. Both were true
+      but about different changes conflated into one bullet, risking an implementer not knowing
+      whether editing that test file would undermine the "extraction didn't change behavior"
+      claim. **Resolved**: the `expected_ticks()` extraction is now explicitly its own, first
+      commit/task in `tasks.md` (once written), verified against the *unmodified* existing test
+      suite before any new required fields are added in a separate, later commit — so "extraction
+      is behavior-preserving" stays independently checkable.
+    - Whether `heartbeat_timeout_s`/`start_utc` get defaults was left to "decide per-field in
+      tasks.md." **Resolved now, not deferred**: `start_utc` stays required with no default (a
+      silent default would reintroduce the reproducibility risk this plan already fixed once).
+      `heartbeat_timeout_s` also stays required with no default — unlike `lat`/`lon` in #5
+      (where a sensible default, the defended area's center, actually exists), there is no
+      non-arbitrary default timeout value, so forcing an explicit choice is correct, not an
+      oversight.
+36. **(Non-blocking, resolved)** User Story 2's acceptance scenario says a new adapter is
+    "registered and run," and FR-005 requires "implementing `SensorAdapter` plus a `SensorConfig`
+    entry" — but no mechanism connects a `SensorConfig` entry to a specific adapter function
+    anywhere in this plan (disposition item 7 explicitly says "no registration lifecycle").
+    **Resolved**: the extensibility test (`test_adapter_extensibility.py`) calls the throwaway
+    adapter's `translate()` directly — it does not exercise any config-to-adapter mapping, because
+    none exists yet. "Registered" in User Story 2/FR-005 is loose language for "exists and is
+    callable," not a real registration mechanism; mapping a `sensor_id` to its adapter is
+    explicitly out of scope for #6 and recorded as a new architecture.md §13 open question for
+    #13 (orchestration) to resolve, rather than left for #13 to discover the gap independently.
+
+**Suggestion adopted (not a blocking/non-blocking finding, but incorporated directly)**: the
+existing tick formula (`floor(duration_s/dt_s)+1`) can omit a final partial tick (e.g.
+`duration_s=0.3` at 10 Hz yields ticks `[0, 0.1, 0.2]`, not `[0, 0.1, 0.2, 0.3]`) — this is
+`generate_sensor_detections`'s existing, unchanged behavior, and `expected_ticks()` preserves it
+faithfully rather than "fixing" an out-of-scope behavior. The item-22 test list is adjusted to not
+assert the final tick always equals `duration_s`. `translate()` additionally asserts the ticks
+returned by `expected_ticks()` are unique before using them as a lookup key, as a defensive
+assertion against a future change to the shared formula silently breaking that invariant.
+
 ## Project Structure
 
 ### Documentation (this feature)
@@ -373,26 +498,39 @@ specs/006-sensor-adapter-contract/
 src/
 ├── adapters/                   # EXISTING placeholder package (architecture.md §2); populated here
 │   ├── __init__.py
-│   ├── base.py                  # SensorAdapter protocol: translate(raw, sensor, scenario) -> list
-│   ├── sensor1.py                # Concrete adapter for sensor 1
-│   ├── sensor2.py                # Concrete adapter for sensor 2
+│   ├── base.py                  # SensorAdapter protocol + the one shared translate(raw, sensor,
+│   │                             # scenario) -> list[Detection | Heartbeat] implementation
+│   │                             # (disposition item 30 — the two adapters below don't duplicate
+│   │                             # logic, they differ only by which SensorConfig is bound)
+│   ├── sensor1.py                # Thin named binding for sensor 1 (calls base.translate)
+│   ├── sensor2.py                # Thin named binding for sensor 2 (calls base.translate)
 │   └── messages.py               # Detection + Heartbeat pydantic models (architecture.md §3.1)
 ├── config/
-│   └── models.py                 # EXTEND: SensorConfig gains heartbeat_timeout_s;
-│                                  # ScenarioConfig gains start_utc
+│   └── models.py                 # EXTEND: SensorConfig gains heartbeat_timeout_s (validator:
+│                                  # heartbeat_timeout_s > 1/update_rate_hz, required, no default);
+│                                  # ScenarioConfig gains start_utc (required, no default)
 └── simulator/
     └── detections.py             # MINOR REFACTOR: extract expected_ticks(update_rate_hz,
                                    # duration_s) -> list[float], the formula already inlined in
                                    # generate_sensor_detections, so translate() can import and
-                                   # reuse it verbatim (disposition item 15) — no behavior change,
-                                   # existing #5 tests must still pass unmodified
+                                   # reuse it verbatim (disposition item 15) — no behavior change.
+                                   # Land this as its OWN first commit/task, verified against the
+                                   # existing #5 test suite UNMODIFIED, before the separate commit
+                                   # that adds new required config fields (disposition item 35) —
+                                   # keeps "extraction is behavior-preserving" independently
+                                   # checkable rather than conflated with the config changes.
 
 config/
-├── sensors/example_sensor.yaml   # UPDATE: add heartbeat_timeout_s
+├── sensors/
+│   ├── example_sensor.yaml       # UPDATE: add heartbeat_timeout_s to existing sensor-1 entry
+│   └── sensor_2.yaml             # NEW (disposition item 30 — did not exist before; a real,
+│                                  # distinct update_rate_hz/accuracy_m/position from sensor-1's,
+│                                  # not a copy, so the two adapters are genuinely exercising
+│                                  # different configs, not identical ones)
 └── scenarios/example_scenario.yaml  # UPDATE: add start_utc
       # (verified against the actual repo layout — the plan's earlier draft wrongly assumed both
       # new fields belonged on the scenario file; heartbeat_timeout_s is a per-sensor field and
-      # therefore belongs in config/sensors/example_sensor.yaml, not the scenario file)
+      # therefore belongs in config/sensors/, not the scenario file)
 
 tests/
 ├── test_detections.py             # UPDATE: existing fixtures construct SensorConfig/
@@ -427,15 +565,21 @@ extraction in `src/simulator/detections.py` (disposition item 15).
 ## Architecture doc update (to be made in the implementing PR, not this plan)
 
 Once implementation is complete, the implementing PR must update architecture.md:
-- §3.4: revise the wording itself (not just §13), since independent review found that leaving it
-  unchanged would make the documented liveness guarantee *more* misleading once #6 ships, not
-  less. New wording must state plainly: a `Heartbeat` means no `Detection` was produced for a
-  nominal scheduled tick (schedule-coverage), and that this is **distinct from** detecting a
-  genuinely silent/failed sensor, which remains unresolved (pointer to §13).
+- §3.4: revise the wording itself (not just §13) — this needs two distinct fixes, both caught by
+  review, not one:
+  1. State plainly that a `Heartbeat` means no `Detection` was produced for a nominal scheduled
+     tick (schedule-coverage), and that this is **distinct from** detecting a genuinely
+     silent/failed sensor, which remains unresolved (pointer to §13).
+  2. **Drop "fusion engine" from the trailing clause** ("...or the harness/fusion engine treats it
+     as dead") — fusion never receives `Heartbeat` at all (Consumer boundary, disposition item
+     23); dead-sensor handling is the harness's determination alone. Leaving "fusion engine" in
+     that sentence would contradict the Consumer boundary decision in the architecture doc itself,
+     which is exactly the self-contradiction the opus-pinned review caught at disposition item 29
+     after 3 prior rounds missed it.
 - §13: strike the heartbeat bullet, replace with a short "Resolved in #6" pointer: adapters emit
   an explicit `Heartbeat` message per architecture.md §3.4's revised wording, computed as a pure
   function of the sensor's scheduled tick cadence (via the shared `expected_ticks()` helper) —
-  not the full reasoning above, which stays in this `plan.md`. Also *add three new* bullets (not
+  not the full reasoning above, which stays in this `plan.md`. Also *add five new* bullets (not
   previously tracked):
   - (surfaced by rubber-duck review item 6) `SensorConfig`'s single `update_rate_hz` field
     doesn't yet match §3.4's described `[min_hz, max_hz]` range — flagged for #7 (the harness,
@@ -447,11 +591,22 @@ Once implementation is complete, the implementing PR must update architecture.md
     check (§4 check 7, "dropped-message behavior") will need a mechanism to give `translate()`
     (or a successor) real evidence of actual feed coverage, not just the nominal schedule — open
     for #7 to resolve.
-  - (surfaced by independent review, disposition item 24) §4 check 5's "measured inter-detection
-    interval... falls within `[min_hz, max_hz]`" no longer cleanly applies once a sensor can
-    produce long `Heartbeat`-only stretches with zero `Detection`s (no target in view) — the
-    harness (#7) will need to measure cadence across `Detection | Heartbeat` messages, not
-    `Detection` alone, to avoid an undefined or falsely-failing rate check during idle periods.
+  - (surfaced by independent review item 24, **wording corrected at disposition item 34 — do not
+    reuse the originally-proposed fix**) §4 check 5's "measured inter-detection interval... falls
+    within `[min_hz, max_hz]`" no longer cleanly applies once a sensor can produce long
+    `Heartbeat`-only stretches with zero `Detection`s. The earlier draft of this bullet suggested
+    measuring cadence across `Detection | Heartbeat` together — **that doesn't work**, since
+    `Heartbeat` is generated directly from the configured rate and would make the check
+    unfalsifiable. Left open for #7 to actually solve, with that approach explicitly ruled out
+    rather than silently left as the implied answer.
+  - (surfaced by opus-pinned review item 33) whether `raw_payload`'s `t_s` field becomes a
+    load-bearing contract the harness (#7) relies on for its clock-offset check (§4 check 4),
+    since `Detection` has no dedicated simulator-time field today and decoding `t_s` back out of
+    `detection_id` would make the ID format an undocumented, hidden contract. #6 does not resolve
+    this; it's #7/#8's design decision.
+  - (surfaced by opus-pinned review item 36) no mechanism maps a `SensorConfig`/`sensor_id` entry
+    to the adapter function that should process it ("registration," referenced loosely in spec.md
+    User Story 2, doesn't actually exist as a mechanism). Left for #13 (orchestration) to design.
 - §2: note `src/adapters/` is now populated (it was already listed as a placeholder).
 - §3.1: note `Detection.detection_id` is deterministically generated as
   `f"{sensor_id}:{tick_index}:{index_within_tick}"` by the adapter, not provided by the sensor.

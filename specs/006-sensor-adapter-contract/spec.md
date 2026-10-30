@@ -66,13 +66,15 @@ produces valid `Detection` objects.
 
 ### User Story 3 - A sensor's schedule-coverage is observable (Priority: P2)
 
-As the conformance harness (next issue, #7) and fusion engine (later, #9), I need to know, for
-every scheduled tick, whether a sensor reported a `Detection` or an explicit `Heartbeat` — so a
-tick with no target in view is distinguishable, in the output stream, from a tick that was simply
-never produced at all.
+As the conformance harness (next issue, #7), I need to know, for every scheduled tick, whether a
+sensor reported a `Detection` or an explicit `Heartbeat` — so a tick with no target in view is
+distinguishable, in the output stream, from a tick that was simply never produced at all.
 
 **Why this priority**: Required for this issue's heartbeat deliverable, but downstream (harness
-check 6, fusion's track-coasting behavior) rather than blocking for #6 itself — hence P2, not P1.
+check 6) rather than blocking for #6 itself — hence P2, not P1. **The fusion engine (#9) never
+sees `Heartbeat` entries at all** — per FR-012, only `Detection` is forwarded past the harness
+gate — so fusion's track-coasting behavior is not this story's concern (corrected after the
+opus-pinned review found this story still implied otherwise, contradicting FR-012's own fix).
 
 **Scope note (added after rubber-duck review #2)**: this story is about *schedule-coverage
 bookkeeping* — "did the adapter account for this tick" — not real sensor-failure detection.
@@ -126,20 +128,26 @@ target.
   `RawDetection` objects (from `src/simulator/detections.py`, issue #5) into valid `Detection`
   objects, converting `t_s` (sim-clock seconds) to `timestamp_utc` (UTC epoch) using the
   scenario's configured start time, with no injected clock-offset error.
-- **FR-004**: The system MUST provide a second, equivalent concrete adapter for sensor 2.
+- **FR-004**: The system MUST provide a second, equivalent concrete adapter for sensor 2, exercised
+  against its own distinct `SensorConfig` (`config/sensors/sensor_2.yaml`, newly created by this
+  issue — not a copy of sensor 1's config). **Implementation note** (added after the opus-pinned
+  review found this was previously unspecified): "two adapters" means two thin, named bindings
+  over one shared `translate()` implementation in `src/adapters/base.py`, differing only in which
+  `SensorConfig` each is invoked with — not two independent copies of the translation logic.
 - **FR-005**: A new sensor adapter MUST be addable by implementing `SensorAdapter` plus a
   `SensorConfig` entry, with zero required changes to `src/simulator/`, the `Detection` schema, or
   any other adapter — verified by an explicit throwaway test adapter (User Story 2).
 - **FR-006**: The system MUST provide an explicit `Heartbeat` message (resolved via `plan.md`'s
   rubber-duck-reviewed design: a pure, stateless, batch-computed signal, not inferred adapter
-  instance state) so a consumer (harness, fusion engine) can determine that a scheduled tick was
-  accounted for — either a `Detection` or a `Heartbeat` — even when no target was in view and no
-  `Detection` was produced. **Scope note**: this proves schedule-coverage, not real sensor
-  liveness/failure — see `plan.md`'s "Known limitation"; genuine dead-sensor detection is
+  instance state) so the harness (the only consumer of `Heartbeat` — see FR-012) can determine
+  that a scheduled tick was accounted for — either a `Detection` or a `Heartbeat` — even when no
+  target was in view and no `Detection` was produced. **Scope note**: this proves
+  schedule-coverage, not real sensor liveness/failure — see `plan.md`'s "Known limitation";
+  genuine dead-sensor detection is
   explicitly deferred to #7.
 - **FR-007**: `SensorConfig` MUST gain `heartbeat_timeout_s`, extending the existing model in
   `src/config/models.py` rather than redefining it, consistent with that file's existing module
-  docstring guidance, and MUST validate `heartbeat_timeout_s >= 1 / update_rate_hz` at construction
+  docstring guidance, and MUST validate `heartbeat_timeout_s > 1 / update_rate_hz` at construction
   time (rejecting configs that could never satisfy architecture.md §3.4's timing requirement by
   construction — added after rubber-duck review #3 found the field was otherwise unenforced).
 - **FR-008**: `ScenarioConfig` MUST gain a `start_utc` field (a configured, deterministic Unix
@@ -172,9 +180,14 @@ target.
 
 - **Detection**: The canonical, schema-validated message every adapter emits — the extensibility
   seam the whole epic's "plug in a new sensor" claim rests on. Defined in architecture.md §3.1.
-- **Heartbeat**: A new, explicit pydantic message (`sensor_id`, `t_s`) emitted by `translate()` for
-  any scheduled tick with no corresponding `Detection` — satisfies architecture.md §3.4's existing
-  "emit... an explicit heartbeat/liveness signal" wording directly.
+- **Heartbeat**: A new, explicit pydantic message (`sensor_id`, `timestamp_utc`, `t_s`) emitted by
+  `translate()` for any scheduled tick with no corresponding `Detection` — satisfies
+  architecture.md §3.4's existing "emit... an explicit heartbeat/liveness signal" wording
+  directly. `timestamp_utc` is computed via the same `start_utc + t_s` conversion `Detection`
+  uses, so both message types share one time base; `t_s` is retained alongside it but is
+  informational/debugging only, matching `Detection.raw_payload`'s existing convention (added
+  after the opus-pinned review found the original `Heartbeat(sensor_id, t_s)` shape would leave
+  `Heartbeat` and `Detection` on two different clocks).
 - **SensorAdapter**: The interface/protocol contract — a single pure function,
   `translate(raw_detections, sensor, scenario) -> list[Detection | Heartbeat]`. Not a data entity,
   but the structural boundary that must remain stable as new sensors are added.
@@ -199,11 +212,16 @@ target.
 
 ## Assumptions
 
-- Sensor 1 and sensor 2's existing `SensorConfig` entries in `config/sensors/example_sensor.yaml`
-  (from #5) are reused as-is, extended with `heartbeat_timeout_s` (a per-sensor field); separately,
-  `config/scenarios/example_scenario.yaml`'s scenario-level config gains `start_utc`. (Corrected
-  after rubber-duck review #2 flagged that an earlier draft of this spec/plan wrongly assumed both
-  new fields belonged on the scenario file — verified against the actual repo layout.)
+- Sensor 1's existing `SensorConfig` entry in `config/sensors/example_sensor.yaml` (from #5) is
+  reused as-is, extended with `heartbeat_timeout_s` (a per-sensor field). **Sensor 2 has no
+  existing config** — a new `config/sensors/sensor_2.yaml` is created by this issue, with its own
+  distinct `update_rate_hz`/`accuracy_m`/position, not a copy of sensor 1's (corrected after the
+  opus-pinned review found this spec's earlier draft wrongly claimed sensor 2's config "already
+  existed" and was merely being reused — it didn't; the only prior "sensor-2" anywhere in the repo
+  was a throwaway `model_copy` inline in a #5 test). Separately, `config/scenarios/
+  example_scenario.yaml`'s scenario-level config gains `start_utc`. (Also corrected after rubber-
+  duck review #2 flagged that an even earlier draft wrongly assumed both new fields belonged on
+  the scenario file — verified against the actual repo layout.)
 - The scenario's "start time" (for converting `t_s` to `timestamp_utc`) is a configured,
   deterministic `start_utc` field on `ScenarioConfig`, not wall-clock time at simulation start —
   revised after rubber-duck review identified that wall-clock "now" would violate constitution
