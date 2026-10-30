@@ -61,7 +61,8 @@ produces valid `Detection` objects.
 **Acceptance Scenarios**:
 
 1. **Given** a new, minimal test adapter implementing only the `SensorAdapter` interface, **When**
-   it is registered and run, **Then** it produces valid `Detection` objects without any change to
+   it is implemented and invoked directly (no config-to-adapter lookup mechanism exists yet — see
+   plan.md item 36), **Then** it produces valid `Detection` objects without any change to
    `src/simulator/`, `src/config/models.py`'s existing fields, or sensor 1/2's adapters.
 
 ### User Story 3 - A sensor's schedule-coverage is observable (Priority: P2)
@@ -122,18 +123,23 @@ target.
   meters AGL), `accuracy_m` (positive float, meters 1-sigma), `velocity_mps` (optional float,
   m/s), `confidence` (optional float, 0.0-1.0), `raw_payload` (dict).
 - **FR-002**: The system MUST define a `SensorAdapter` interface/protocol that every adapter
-  (present and future) implements, such that the harness, fusion engine, and orchestrator interact
-  with any adapter only through this interface — never through a concrete adapter's internals.
+  (present and future) implements, such that the harness and orchestrator interact with any
+  adapter only through this interface — never through a concrete adapter's internals. (Fusion is
+  excluded from this list — see FR-012; fusion never calls an adapter directly.)
 - **FR-003**: The system MUST provide a concrete adapter for sensor 1 that translates
   `RawDetection` objects (from `src/simulator/detections.py`, issue #5) into valid `Detection`
   objects, converting `t_s` (sim-clock seconds) to `timestamp_utc` (UTC epoch) using the
   scenario's configured start time, with no injected clock-offset error.
 - **FR-004**: The system MUST provide a second, equivalent concrete adapter for sensor 2, exercised
   against its own distinct `SensorConfig` (`config/sensors/sensor_2.yaml`, newly created by this
-  issue — not a copy of sensor 1's config). **Implementation note** (added after the opus-pinned
-  review found this was previously unspecified): "two adapters" means two thin, named bindings
-  over one shared `translate()` implementation in `src/adapters/base.py`, differing only in which
-  `SensorConfig` each is invoked with — not two independent copies of the translation logic.
+  issue — not a copy of sensor 1's config). **Implementation note** (revised after a sixth review
+  found the first fix still didn't define real code): "two adapters" means `src/adapters/base.py`
+  holds the one shared `translate(raw_detections, sensor, scenario)` function, and `sensor1.py`/
+  `sensor2.py` are thin modules that each re-export `translate` alongside their own sensor's
+  `SensorConfig` loaded from its YAML file — not two independent copies of the translation logic,
+  and not an attempt to instantiate `SensorAdapter` (a `Protocol`, which cannot be instantiated
+  directly). A caller still passes `(raw_detections, sensor, scenario)` explicitly on every call;
+  `sensor1.py`/`sensor2.py` exist only so #13's orchestration has a name to import per sensor.
 - **FR-005**: A new sensor adapter MUST be addable by implementing `SensorAdapter` plus a
   `SensorConfig` entry, with zero required changes to `src/simulator/`, the `Detection` schema, or
   any other adapter — verified by an explicit throwaway test adapter (User Story 2).

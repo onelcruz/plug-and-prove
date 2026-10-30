@@ -181,10 +181,13 @@ wording ("emit... a signal") inconsistent with a design that emits nothing. The 
 A `rubber-duck` review of this plan's first draft (proposing cadence/instance-state liveness) was
 run before implementation began. It raised 12 points; this is the disposition of each:
 
-1. **(Blocking, resolved)** First draft had no source of "empty ticks" from the batch-oriented
-   simulator — resolved by having `translate()` independently recompute the identical tick
-   schedule from public config fields (`update_rate_hz`, `duration_s`), requiring zero changes to
-   `src/simulator/`.
+1. **(Blocking, resolved — note added at review round 6)** First draft had no source of "empty
+   ticks" from the batch-oriented simulator — resolved by having `translate()` independently
+   recompute the identical tick schedule from public config fields (`update_rate_hz`,
+   `duration_s`), requiring zero changes to `src/simulator/detections.py`'s own logic. (This claim
+   is about the simulator's existing code, not about the test suite — item 15 separately requires
+   updating `tests/test_detections.py`'s config fixtures once new required fields are added; the
+   two are not in tension.)
 2. **(Blocking, resolved)** Instance state wasn't observable by a batch-evaluating harness —
    resolved by making `Heartbeat` an explicit, emitted entry in the same returned list as
    `Detection`, fully observable from the completed output alone.
@@ -235,8 +238,10 @@ run before implementation began. It raised 12 points; this is the disposition of
    gains a new field, `start_utc: NonNegativeFloat` (seconds since Unix epoch), explicitly
    configured per-scenario rather than read from the real clock. `timestamp_utc = start_utc + t_s`
    for every adapter, and this same `scenario.start_utc` is the single shared reference the
-   harness (#7) will use for its clock-offset check — same source, trivially handed off, fully
-   reproducible.
+   harness (#7) will use for its clock-offset check — same source, fully reproducible. (The
+   earlier claim that this hand-off is "trivial" was itself retracted at item 33: #7 still has to
+   decide how it actually receives `start_utc` and simulator-time per `Detection`, since
+   `raw_payload` is documented as debugging-only, not a load-bearing contract field.)
 10. **(Sound, kept)** `Detection` living in `src/adapters/` rather than `src/config/models.py` —
     confirmed correct: it's a pipeline message schema (like `RawDetection`), not YAML-loaded
     configuration.
@@ -395,13 +400,17 @@ itself stale, plus 2 more new blocking issues and 5 non-blocking issues:
     - A real `config/sensors/sensor_2.yaml` is added, with a distinct `update_rate_hz`,
       `accuracy_m`, and position from sensor 1's, so the two sensors are genuinely different
       configurations, not a copy-paste.
-    - The code shape is now explicit: `translate()` is one shared, generic function living in
-      `src/adapters/base.py`; `sensor1.py` and `sensor2.py` are thin named bindings (e.g. a
-      `SENSOR_1_ADAPTER = SensorAdapter(translate=translate)`-style registration, or equivalently
-      simple module-level re-exports) that exist to satisfy FR-002's "every adapter is reachable
-      by name" requirement and to give #13's orchestration something per-sensor to wire up — not
-      because the translation logic itself differs per sensor. This is stated plainly rather than
-      implied, so an implementer doesn't have to guess whether to duplicate logic.
+    - The code shape is now explicit, and corrected after a sixth review round found the first
+      attempt at this fix described invalid Python: `translate()` is one shared, generic function
+      living in `src/adapters/base.py`. `SensorAdapter` is a `Protocol`, which Python does not let
+      you instantiate (`SensorAdapter(translate=translate)` raises `TypeError`), so `sensor1.py`
+      and `sensor2.py` are plain modules that each re-export `translate` alongside their own
+      sensor's `SensorConfig` object loaded from its YAML file — nothing is "bound"; every call
+      site still passes `(raw_detections, sensor, scenario)` explicitly. These two modules exist
+      only so #13's orchestration has a name to import per sensor, not because the translation
+      logic itself differs per sensor, and not to satisfy any "reachable by name" requirement in
+      FR-002 (no such requirement exists there — that citation in the prior fix was incorrect and
+      has been removed).
 31. **(Blocking, resolved)** `Heartbeat` was specified as `Heartbeat(sensor_id, t_s)` — carrying
     only simulator-relative `t_s`, while `Detection` carries `timestamp_utc`. This means the two
     message types wouldn't share a time base: #8's clock-offset adapter would get correct
@@ -415,15 +424,20 @@ itself stale, plus 2 more new blocking issues and 5 non-blocking issues:
     another duplicated-formula risk). `Heartbeat.t_s` is kept alongside it, explicitly labeled
     informational/debugging only (matching `Detection.raw_payload`'s existing "debugging only"
     convention from §3.1), not a contract field any consumer should rely on for timing logic.
-32. **(Non-blocking, resolved)** The `heartbeat_timeout_s >= 1/update_rate_hz` validator (item 18)
-    allows a config where the comparison is satisfied only by floating-point luck at the exact
-    boundary — a config with `heartbeat_timeout_s == 1/update_rate_hz` passes construction but
-    could fail a strict `gap <= timeout` check downstream (#7) due to ordinary float64 rounding in
-    repeated addition. **Resolved**: the validator now requires strict headroom —
-    `heartbeat_timeout_s > 1/update_rate_hz` (not `>=`) — removing the boundary-equality case
-    entirely rather than trying to pick a numeric tolerance. Noted for #7: any cadence check it
-    implements should still use a small tolerance (not exact equality) when comparing timestamps,
-    since float64 arithmetic on seconds-since-epoch values doesn't guarantee exact results.
+32. **(Non-blocking, resolved — scope corrected at review round 6)** The
+    `heartbeat_timeout_s >= 1/update_rate_hz` validator (item 18) allows a config where the
+    comparison is satisfied only by floating-point luck at the exact boundary — a config with
+    `heartbeat_timeout_s == 1/update_rate_hz` passes construction but could fail a strict
+    `gap <= timeout` check downstream (#7) due to ordinary float64 rounding in repeated addition.
+    **Resolved**: the validator now requires strict headroom —
+    `heartbeat_timeout_s > 1/update_rate_hz` (not `>=`) — removing the exact-equality boundary
+    case. This narrows the risk; it does not eliminate it — `start_utc` values around 1.7e9
+    (current Unix epoch) have a float64 spacing of roughly 2.4e-7s, so a config whose
+    `heartbeat_timeout_s` exceeds the boundary by less than that spacing could still trip an exact
+    downstream comparison. Noted for #7: any cadence check it implements MUST use a small
+    tolerance (not exact equality) when comparing timestamps, since float64 arithmetic on
+    seconds-since-epoch values doesn't guarantee exact results — this tolerance requirement is the
+    actual protection, not the strict `>` alone.
 33. **(Non-blocking, resolved — scoped as a §13 question rather than a false claim)** Disposition
     item 9 asserted `scenario.start_utc` is "trivially handed off" to the harness as its
     clock-offset reference — but the harness's check 4 needs each detection's true *simulator*
@@ -461,16 +475,40 @@ itself stale, plus 2 more new blocking issues and 5 non-blocking issues:
       (where a sensible default, the defended area's center, actually exists), there is no
       non-arbitrary default timeout value, so forcing an explicit choice is correct, not an
       oversight.
-36. **(Non-blocking, resolved)** User Story 2's acceptance scenario says a new adapter is
-    "registered and run," and FR-005 requires "implementing `SensorAdapter` plus a `SensorConfig`
-    entry" — but no mechanism connects a `SensorConfig` entry to a specific adapter function
-    anywhere in this plan (disposition item 7 explicitly says "no registration lifecycle").
-    **Resolved**: the extensibility test (`test_adapter_extensibility.py`) calls the throwaway
-    adapter's `translate()` directly — it does not exercise any config-to-adapter mapping, because
-    none exists yet. "Registered" in User Story 2/FR-005 is loose language for "exists and is
-    callable," not a real registration mechanism; mapping a `sensor_id` to its adapter is
-    explicitly out of scope for #6 and recorded as a new architecture.md §13 open question for
-    #13 (orchestration) to resolve, rather than left for #13 to discover the gap independently.
+36. **(Non-blocking, resolved — wording corrected at review round 6)** User Story 2's acceptance
+    scenario said a new adapter is "registered and run," and FR-005 requires "implementing
+    `SensorAdapter` plus a `SensorConfig` entry" — but no mechanism connects a `SensorConfig`
+    entry to a specific adapter function anywhere in this plan (disposition item 7 explicitly says
+    "no registration lifecycle"). Review round 6 also flagged that architecture.md §10's sequence
+    diagram already uses "Register adapter" for a *different* step (submitting an adapter to the
+    harness gate for conformance checking), so reusing "registered" here risked conflating two
+    unrelated meanings. **Resolved**: spec.md's User Story 2 acceptance scenario now says
+    "implemented and invoked directly," not "registered." The extensibility test
+    (`test_adapter_extensibility.py`) calls the throwaway adapter's `translate()` directly — it
+    does not exercise any config-to-adapter mapping, because none exists yet. The architecture.md
+    §13 open question this plan adds is scoped narrowly to the *mapping from a `sensor_id` to its
+    adapter function* (for #13/orchestration to resolve) — distinct from, and not in conflict
+    with, §10's existing "Register adapter" harness-gate step.
+37. **(Blocking, resolved)** A sixth rubber-duck round (opus-pinned, independent of round 5) found
+    the previous round's fix for item 30 described code that doesn't run: `SensorAdapter` is a
+    `Protocol`, and `SensorAdapter(translate=translate)` raises `TypeError` on instantiation; the
+    cited "FR-002's reachable-by-name requirement" doesn't exist in FR-002's actual text. It also
+    found five non-blocking staleness/consistency gaps: item 1 still said "zero changes to
+    `src/simulator/`" in a way that read as contradicting item 15's test-fixture updates; item 9
+    still called the harness clock-offset hand-off "trivial," which item 33 had already retracted;
+    spec.md's FR-002 still listed "fusion engine" as an adapter caller, the same class of stale
+    reference as B1; spec.md's User Story 2 still said "registered," conflicting with
+    architecture.md §10's unrelated "Register adapter" step; and item 32's framing claimed the
+    strict `>` validator removed the float-precision boundary risk "entirely," which overstates
+    it — a config just inside the new boundary can still be closer than one float64 ULP. All six
+    are fixed: item 30's code shape now uses plain module re-exports (no `Protocol` instantiation,
+    no invented FR-002 citation); items 1, 9, and 32 now carry accurate, non-contradictory
+    wording; FR-002 no longer lists fusion engine; spec.md's User Story 2 now says "implemented and
+    invoked directly"; and the architecture.md update plan now also records the `Heartbeat` field
+    table, the `translate()` signature, and the new config fields in §2/§3.1, not only in
+    `plan.md`. This is the second time in six rounds that a "resolved" item was found to still be
+    wrong on a later pass (item 3 at round 5, item 30/1/9/32 at round 6) — reinforcing why the
+    re-review-after-substantive-revision rule, not a one-time pass, is the correct standard.
 
 **Suggestion adopted (not a blocking/non-blocking finding, but incorporated directly)**: the
 existing tick formula (`floor(duration_s/dt_s)+1`) can omit a final partial tick (e.g.
@@ -500,10 +538,15 @@ src/
 │   ├── __init__.py
 │   ├── base.py                  # SensorAdapter protocol + the one shared translate(raw, sensor,
 │   │                             # scenario) -> list[Detection | Heartbeat] implementation
-│   │                             # (disposition item 30 — the two adapters below don't duplicate
-│   │                             # logic, they differ only by which SensorConfig is bound)
-│   ├── sensor1.py                # Thin named binding for sensor 1 (calls base.translate)
-│   ├── sensor2.py                # Thin named binding for sensor 2 (calls base.translate)
+│   │                             # (disposition item 30, corrected at review round 6 — the two
+│   │                             # adapters below don't duplicate logic; they re-export the same
+│   │                             # translate() and each pair it with their own sensor's config,
+│   │                             # not a "bound" instance of anything — translate() still takes
+│   │                             # sensor/scenario as explicit arguments on every call)
+│   ├── sensor1.py                # Re-exports base.translate + sensor 1's SensorConfig (loaded
+│   │                             # from config/sensors/example_sensor.yaml)
+│   ├── sensor2.py                # Re-exports base.translate + sensor 2's SensorConfig (loaded
+│   │                             # from config/sensors/sensor_2.yaml)
 │   └── messages.py               # Detection + Heartbeat pydantic models (architecture.md §3.1)
 ├── config/
 │   └── models.py                 # EXTEND: SensorConfig gains heartbeat_timeout_s (validator:
@@ -535,11 +578,10 @@ config/
 tests/
 ├── test_detections.py             # UPDATE: existing fixtures construct SensorConfig/
 │                                  # ScenarioConfig directly; must pass the new required fields
-│                                  # (or the fields need sensible non-breaking defaults — decide
-│                                  # per-field in tasks.md; heartbeat_timeout_s and start_utc are
-│                                  # both good candidates for required-with-no-default, since
-│                                  # silently defaulting start_utc would reintroduce the
-│                                  # reproducibility risk this plan just fixed)
+│                                  # explicitly — heartbeat_timeout_s and start_utc are both
+│                                  # required with no default (disposition item 35), so there is
+│                                  # no fallback to rely on; silently defaulting start_utc would
+│                                  # reintroduce the reproducibility risk this plan already fixed
 ├── test_adapters.py              # NEW: schema conformance, both adapters, heartbeat semantics,
 │                                  # detection_id uniqueness, timestamp_utc determinism,
 │                                  # expected_ticks() coverage (t_s=0, non-binary-exact rate,
@@ -604,12 +646,24 @@ Once implementation is complete, the implementing PR must update architecture.md
     since `Detection` has no dedicated simulator-time field today and decoding `t_s` back out of
     `detection_id` would make the ID format an undocumented, hidden contract. #6 does not resolve
     this; it's #7/#8's design decision.
-  - (surfaced by opus-pinned review item 36) no mechanism maps a `SensorConfig`/`sensor_id` entry
-    to the adapter function that should process it ("registration," referenced loosely in spec.md
-    User Story 2, doesn't actually exist as a mechanism). Left for #13 (orchestration) to design.
-- §2: note `src/adapters/` is now populated (it was already listed as a placeholder).
+  - (surfaced by opus-pinned review item 36, scope narrowed at review round 6) no mechanism maps
+    a `SensorConfig`/`sensor_id` entry to the adapter function that should process it. This is
+    distinct from §10's existing "Register adapter" sequence step (submitting an adapter to the
+    harness gate for conformance checking) — the gap here is specifically the `sensor_id` →
+    adapter-function lookup, not the harness-gate step, which already exists and is unaffected.
+    Left for #13 (orchestration) to design.
+- §2: note `src/adapters/` is now populated (it was already listed as a placeholder), and add a
+  "Resolved during implementation" note recording the `SensorAdapter.translate` signature
+  (`translate(raw_detections: list[RawDetection], sensor: SensorConfig,
+  scenario: ScenarioConfig) -> list[Detection | Heartbeat]`) and the new `ScenarioConfig.start_utc`
+  / `SensorConfig.heartbeat_timeout_s` config fields — matching the pattern #5 used for its own
+  config additions, rather than leaving these contract details recorded only in `plan.md` where
+  #7/#8/#13 are less likely to look.
 - §3.1: note `Detection.detection_id` is deterministically generated as
-  `f"{sensor_id}:{tick_index}:{index_within_tick}"` by the adapter, not provided by the sensor.
+  `f"{sensor_id}:{tick_index}:{index_within_tick}"` by the adapter, not provided by the sensor;
+  also add a `Heartbeat` field table (`sensor_id`, `timestamp_utc`, `t_s` labeled debugging-only)
+  alongside `Detection`'s existing one, since `Heartbeat` is a new message type #7/#8/#13 all need
+  to know the shape of.
 - §5: no wording change needed — its existing "Input: canonical `Detection` objects
   (post-harness-gate)" phrasing already means `Heartbeat` is excluded; #6 just makes that explicit
   in `plan.md`'s "Consumer boundary" (disposition item 23) rather than relying on an inference.
