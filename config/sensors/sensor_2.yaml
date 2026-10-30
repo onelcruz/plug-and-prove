@@ -1,0 +1,12 @@
+# Sensor 2 config (architecture.md §2). A real, distinct SensorConfig from
+# sensor-1's -- different update_rate_hz, accuracy_m, range_m, and position --
+# so the two adapters in issue #6 genuinely exercise different configurations,
+# not a copy-paste (disposition item 30).
+sensor_id: sensor-2
+accuracy_m: 8.0
+range_m: 3500
+update_rate_hz: 5.0
+dropout_probability: 0.05
+heartbeat_timeout_s: 0.5
+lat: 38.8910
+lon: -77.0370

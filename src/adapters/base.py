@@ -14,7 +14,7 @@ from typing import Protocol
 
 from src.adapters.messages import Detection, Heartbeat
 from src.config.models import ScenarioConfig, SensorConfig
-from src.simulator.detections import RawDetection
+from src.simulator.detections import RawDetection, expected_ticks
 
 
 class SensorAdapter(Protocol):
@@ -31,3 +31,64 @@ class SensorAdapter(Protocol):
         sensor: SensorConfig,
         scenario: ScenarioConfig,
     ) -> list[Detection | Heartbeat]: ...
+
+
+def translate(
+    raw_detections: list[RawDetection],
+    sensor: SensorConfig,
+    scenario: ScenarioConfig,
+) -> list[Detection | Heartbeat]:
+    """Translate a sensor's raw detection stream into canonical pipeline messages.
+
+    A pure, stateless, batch function: every scheduled tick (per
+    ``expected_ticks``) either has a matching ``RawDetection`` -- translated
+    into a ``Detection`` -- or does not, in which case a ``Heartbeat`` is
+    emitted instead (FR-006; see ``translate``'s heartbeat-emission addition
+    in specs/006-sensor-adapter-contract/plan.md's "Heartbeat design
+    decision" for the full reasoning).
+
+    Raises ``ValueError`` if any ``raw.t_s`` is not exactly a value from
+    ``expected_ticks(sensor.update_rate_hz, scenario.duration_s)`` (FR-010),
+    or if any ``raw.sensor_id`` does not match ``sensor.sensor_id`` (FR-011)
+    -- both are contract violations, not something to silently drop.
+    """
+    ticks = expected_ticks(sensor.update_rate_hz, scenario.duration_s)
+    tick_index_by_t_s = {t_s: i for i, t_s in enumerate(ticks)}
+    if len(tick_index_by_t_s) != len(ticks):
+        raise AssertionError("expected_ticks() returned non-unique ticks")
+
+    messages: list[Detection | Heartbeat] = []
+    index_within_tick_by_tick: dict[int, int] = {}
+
+    for raw in raw_detections:
+        if raw.sensor_id != sensor.sensor_id:
+            raise ValueError(
+                f"RawDetection.sensor_id {raw.sensor_id!r} does not match the adapter's "
+                f"configured sensor_id {sensor.sensor_id!r}"
+            )
+        if raw.t_s not in tick_index_by_t_s:
+            raise ValueError(
+                f"RawDetection.t_s={raw.t_s} is not a scheduled tick for update_rate_hz="
+                f"{sensor.update_rate_hz} over duration_s={scenario.duration_s}"
+            )
+
+        tick_index = tick_index_by_t_s[raw.t_s]
+        index_within_tick = index_within_tick_by_tick.get(tick_index, 0)
+        index_within_tick_by_tick[tick_index] = index_within_tick + 1
+
+        messages.append(
+            Detection(
+                sensor_id=sensor.sensor_id,
+                detection_id=f"{sensor.sensor_id}:{tick_index}:{index_within_tick}",
+                timestamp_utc=scenario.start_utc + raw.t_s,
+                lat=raw.lat,
+                lon=raw.lon,
+                alt_m=raw.alt_m,
+                accuracy_m=sensor.accuracy_m,
+                velocity_mps=None,
+                confidence=None,
+                raw_payload=raw.model_dump(),
+            )
+        )
+
+    return messages
