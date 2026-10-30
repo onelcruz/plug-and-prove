@@ -47,10 +47,13 @@ For any issue classified unsettled, before writing implementation code:
    collides with an existing spec directory, the script auto-renumbers and prints a warning —
    confirm the resulting directory name still matches before continuing.
 2. `/speckit-plan` → write `plan.md` in the same folder (how, concretely).
-3. Run the `rubber-duck` pre-implementation review (or equivalent) against `plan.md` — interview
-   it relentlessly for gaps, unstated assumptions, and untested edge cases. Resolve or explicitly
-   accept every question raised before moving on.
-4. `/speckit-tasks` → write `tasks.md` in the same folder; implement against it.
+3. Run the `rubber-duck` pre-implementation review — as a separate agent pinned to an opus-tier
+   model (see "Agent roles and model assignment" below) — against `plan.md` and `spec.md`:
+   interview them relentlessly for gaps, unstated assumptions, and untested edge cases. Resolve or
+   explicitly accept every question raised, then re-run the review against the revision rather
+   than assuming the fix is sufficient — do this until a pass comes back clean.
+4. `/speckit-tasks` → write `tasks.md` in the same folder; implement against it directly (not via
+   a subagent — see "Agent roles and model assignment").
 5. Commit all three files — they are a permanent record and MUST NOT be deleted, even after the
    issue is closed. They hold the full reasoning trail so `docs/architecture.md` doesn't have to;
    only add a short pointer/summary there, not the full spec/plan content.
@@ -92,16 +95,42 @@ independent review of the diff from an agent or person who did not author it, an
 explicitly accept its findings, before merging. This caught a real, CI-passing, self-tested bug
 (a 180-degree bearing inversion in #5) that the original author's own tests missed entirely.
 
-- If you have access to a dedicated review subagent (e.g. this environment's `code-review` agent
-  type), run it against the PR's diff and address or explicitly dismiss (with reasoning) every
-  finding before merging.
-- If you don't have a review subagent available, request review from GitHub Copilot directly on
-  the PR (`gh pr edit <N> --add-reviewer "@copilot"`) and wait for its review before merging.
+- Run a dedicated review subagent against the PR's diff/tests (see "Agent roles and model
+  assignment" below for which one and which model) and address or explicitly dismiss (with
+  reasoning) every finding before merging.
 - Record what was reviewed and what was found (or "no findings") in the PR body, so the review
   step is auditable after the fact, not just a private, unverifiable claim.
 - Do not skip this step because CI is green or because you (the agent) are confident in the
   change — confidence in your own output is exactly what this step exists to check.
 - Scaffolding, config-only, and documentation-only PRs may skip this gate.
+- **The human (not `@copilot` or any agent) is the merge-approval gate.** The agent does not
+  request or rely on an automated `@copilot` approval to satisfy the repo's branch-protection
+  approval requirement — the user reviews the final, verified PR and approves/merges it
+  themselves.
+
+## Agent roles and model assignment
+
+Decided explicitly by the user (not a default) — three distinct roles, each with its own model
+tier, used consistently across every sub-issue going forward:
+
+1. **Spec/plan authoring and implementation**: done directly by the primary agent in the main
+   session — not delegated to a subagent. This includes writing `spec.md`/`plan.md`, `tasks.md`,
+   and all source code/tests.
+2. **Rubber-duck review of `spec.md`/`plan.md`** (the specs/ workflow's step 3): run as a separate
+   agent pinned to the highest-capability ("opus-tier") model available, specifically because this
+   is the step that catches design-level flaws before any code is written — it's worth the extra
+   cost. Re-run after every substantive revision rather than assuming a fix is sufficient (see
+   "Rigorous pre-implementation review" below).
+3. **Test/implementation review before merge**: run as a separate agent pinned to a sonnet-tier
+   model, checking specifically that the written tests actually exercise the feature as
+   implemented (not just that they pass), then performing final verification of the PR as a whole.
+   This is the "independent review gate" above.
+
+These are run as separate agent invocations (their own context window, reporting back findings),
+not as parallel long-lived processes the user coordinates directly — but they are treated as
+independent reviewers, not an extension of the authoring agent's own reasoning. Do not skip the
+model pin by letting a review run on whatever the default happens to be; be explicit about the
+model for both the rubber-duck and test-review steps.
 
 ## Recurring architecture-health pass
 
