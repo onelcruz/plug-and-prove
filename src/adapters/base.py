@@ -43,9 +43,12 @@ def translate(
     A pure, stateless, batch function: every scheduled tick (per
     ``expected_ticks``) either has a matching ``RawDetection`` -- translated
     into a ``Detection`` -- or does not, in which case a ``Heartbeat`` is
-    emitted instead (FR-006; see ``translate``'s heartbeat-emission addition
-    in specs/006-sensor-adapter-contract/plan.md's "Heartbeat design
-    decision" for the full reasoning).
+    emitted instead (FR-006), so every scheduled tick is accounted for in the
+    output (SC-003). This proves schedule-coverage, not real sensor liveness/
+    failure -- see specs/006-sensor-adapter-contract/plan.md's "Known
+    limitation": ``translate`` has no way to observe whether the upstream
+    feed was actually still being produced, only whether a tick's scheduled
+    slot was filled.
 
     Raises ``ValueError`` if any ``raw.t_s`` is not exactly a value from
     ``expected_ticks(sensor.update_rate_hz, scenario.duration_s)`` (FR-010),
@@ -57,8 +60,7 @@ def translate(
     if len(tick_index_by_t_s) != len(ticks):
         raise AssertionError("expected_ticks() returned non-unique ticks")
 
-    messages: list[Detection | Heartbeat] = []
-    index_within_tick_by_tick: dict[int, int] = {}
+    detections_by_tick: dict[int, list[Detection]] = {}
 
     for raw in raw_detections:
         if raw.sensor_id != sensor.sensor_id:
@@ -73,10 +75,10 @@ def translate(
             )
 
         tick_index = tick_index_by_t_s[raw.t_s]
-        index_within_tick = index_within_tick_by_tick.get(tick_index, 0)
-        index_within_tick_by_tick[tick_index] = index_within_tick + 1
+        bucket = detections_by_tick.setdefault(tick_index, [])
+        index_within_tick = len(bucket)
 
-        messages.append(
+        bucket.append(
             Detection(
                 sensor_id=sensor.sensor_id,
                 detection_id=f"{sensor.sensor_id}:{tick_index}:{index_within_tick}",
@@ -90,5 +92,19 @@ def translate(
                 raw_payload=raw.model_dump(),
             )
         )
+
+    messages: list[Detection | Heartbeat] = []
+    for tick_index, t_s in enumerate(ticks):
+        bucket = detections_by_tick.get(tick_index)
+        if bucket:
+            messages.extend(bucket)
+        else:
+            messages.append(
+                Heartbeat(
+                    sensor_id=sensor.sensor_id,
+                    timestamp_utc=scenario.start_utc + t_s,
+                    t_s=t_s,
+                )
+            )
 
     return messages

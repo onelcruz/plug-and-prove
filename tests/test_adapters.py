@@ -9,9 +9,9 @@ tasks.md T015's note to land sequentially in the same file).
 
 from src.adapters import sensor1, sensor2
 from src.adapters.base import translate
-from src.adapters.messages import Detection
+from src.adapters.messages import Detection, Heartbeat
 from src.config.models import DefendedArea, ScenarioConfig, SensorConfig
-from src.simulator.detections import RawDetection, generate_sensor_detections
+from src.simulator.detections import RawDetection, expected_ticks, generate_sensor_detections
 from src.simulator.rng import get_rng
 from src.simulator.trajectories import TruthObject, TruthSample
 
@@ -36,22 +36,29 @@ def test_both_adapters_produce_valid_detections():
     obj = _stationary_object(38.8895, -77.0353)
     for config in (sensor1.sensor_config, sensor2.sensor_config):
         raw = generate_sensor_detections(config, SCENARIO, [obj], get_rng(1))
-        detections = translate(raw, config, SCENARIO)
+        messages = translate(raw, config, SCENARIO)
+        # Full coverage: every scheduled tick produced exactly one message.
+        assert len(messages) == len(expected_ticks(config.update_rate_hz, SCENARIO.duration_s))
+        detections = [m for m in messages if isinstance(m, Detection)]
         assert len(detections) == len(raw) > 0
-        assert all(isinstance(d, Detection) for d in detections)
+        assert all(isinstance(m, Detection | Heartbeat) for m in messages)
 
 
 def test_optional_fields_none_when_absent_from_raw():
     obj = _stationary_object(38.8895, -77.0353)
     raw = generate_sensor_detections(sensor1.sensor_config, SCENARIO, [obj], get_rng(1))
-    detections = translate(raw, sensor1.sensor_config, SCENARIO)
+    messages = translate(raw, sensor1.sensor_config, SCENARIO)
+    detections = [m for m in messages if isinstance(m, Detection)]
+    assert len(detections) > 0
     assert all(d.velocity_mps is None and d.confidence is None for d in detections)
 
 
 def test_timestamp_utc_derived_from_start_utc_plus_t_s():
     obj = _stationary_object(38.8895, -77.0353)
     raw = generate_sensor_detections(sensor1.sensor_config, SCENARIO, [obj], get_rng(1))
-    detections = translate(raw, sensor1.sensor_config, SCENARIO)
+    messages = translate(raw, sensor1.sensor_config, SCENARIO)
+    detections = [m for m in messages if isinstance(m, Detection)]
+    assert len(detections) == len(raw)
     for d, r in zip(detections, raw, strict=True):
         assert d.timestamp_utc == SCENARIO.start_utc + r.t_s
 
@@ -78,7 +85,8 @@ def test_detection_id_unique_across_simultaneous_same_tick_detections():
     )
     raw = generate_sensor_detections(sensor, SCENARIO, [obj_a, obj_b], get_rng(1))
     assert len(raw) == 2
-    detections = translate(raw, sensor, SCENARIO)
+    messages = translate(raw, sensor, SCENARIO)
+    detections = [m for m in messages if isinstance(m, Detection)]
     ids = [d.detection_id for d in detections]
     assert len(ids) == len(set(ids))
     assert ids == ["multi:0:0", "multi:0:1"]
@@ -116,3 +124,66 @@ def test_mismatched_sensor_id_raises():
         pass
     else:
         raise AssertionError("expected ValueError for mismatched sensor_id")
+
+
+# --- User Story 3: Heartbeat / schedule-coverage (FR-006, SC-003) -----------
+
+
+def test_every_scheduled_tick_yields_exactly_one_message():
+    """SC-003: every scheduled tick is accounted for as Detection or Heartbeat."""
+    sensor = SensorConfig(
+        sensor_id="multi",
+        accuracy_m=5,
+        range_m=5000,
+        update_rate_hz=1,
+        dropout_probability=0.0,
+        heartbeat_timeout_s=5.0,
+    )
+    # Truth object only exists for t_s in [0.0, 1.0], so tick 2.0 (of 0,1,2) has
+    # no target in range and must yield a Heartbeat, not a missing entry.
+    obj = TruthObject(
+        object_id="a",
+        kind="drone",
+        samples=(
+            TruthSample(t_s=0.0, lat=38.8895, lon=-77.0353, alt_m=100.0),
+            TruthSample(t_s=1.0, lat=38.8895, lon=-77.0353, alt_m=100.0),
+        ),
+    )
+    raw = generate_sensor_detections(sensor, SCENARIO, [obj], get_rng(1))
+    messages = translate(raw, sensor, SCENARIO)
+    ticks = expected_ticks(sensor.update_rate_hz, SCENARIO.duration_s)
+    assert len(messages) == len(ticks) == 3
+    assert [type(m) for m in messages] == [Detection, Detection, Heartbeat]
+
+
+def test_heartbeat_emitted_for_every_tick_when_no_targets_in_view():
+    sensor = SensorConfig(
+        sensor_id="multi",
+        accuracy_m=5,
+        range_m=5000,
+        update_rate_hz=1,
+        dropout_probability=0.0,
+        heartbeat_timeout_s=5.0,
+    )
+    raw = generate_sensor_detections(sensor, SCENARIO, [], get_rng(1))
+    assert raw == []
+    messages = translate(raw, sensor, SCENARIO)
+    ticks = expected_ticks(sensor.update_rate_hz, SCENARIO.duration_s)
+    assert len(messages) == len(ticks) > 0
+    assert all(isinstance(m, Heartbeat) for m in messages)
+
+
+def test_heartbeat_shares_detection_time_base():
+    sensor = SensorConfig(
+        sensor_id="multi",
+        accuracy_m=5,
+        range_m=5000,
+        update_rate_hz=1,
+        dropout_probability=0.0,
+        heartbeat_timeout_s=5.0,
+    )
+    messages = translate([], sensor, SCENARIO)
+    for m in messages:
+        assert isinstance(m, Heartbeat)
+        assert m.timestamp_utc == SCENARIO.start_utc + m.t_s
+        assert m.sensor_id == sensor.sensor_id
