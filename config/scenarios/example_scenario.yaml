@@ -4,6 +4,11 @@
 name: baseline-demo
 seed: 42
 duration_s: 180
+# A fixed, configured Unix epoch reference (2025-01-01T00:00:00Z) so
+# timestamp_utc = start_utc + t_s is identical across repeated runs with the
+# same seed/config -- required by constitution Principle V (reproducibility).
+# Not wall-clock "now" at run start (#6).
+start_utc: 1735689600
 defended_area:
   center_lat: 38.8895
   center_lon: -77.0353
