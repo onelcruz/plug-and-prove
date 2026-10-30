@@ -61,8 +61,12 @@ extensibility (not shipped as permanent production code)
   disposition item 15). No other changes to `src/simulator/`, `src/conformance/`, `src/fusion/`,
   or later-stage modules. ✅
 - **Principle V (Reproducibility)**: Adapters are pure deterministic functions of
-  already-generated `RawDetection` objects — no new RNG usage, so nothing new to test for
-  reproducibility beyond what #5 already covers. ✅
+  already-generated `RawDetection` objects — no new RNG usage. `start_utc` and the new
+  `detection_id` scheme are new deterministic outputs this issue introduces, so (corrected after
+  independent review — see disposition item 28) they are **not** automatically covered by #5's
+  existing tests; the planned `timestamp_utc`/`detection_id` determinism tests in
+  `tests/test_adapters.py` are required reproducibility evidence for this issue, not optional. ✅
+  (planned, not yet done)
 - **Principle VI (Explainability)**: N/A directly — `Detection` doesn't carry a "reason" field in
   architecture.md's schema (that's introduced at the classifier/recommendation stages). No
   violation; just not applicable at this layer.
@@ -113,11 +117,19 @@ Concretely:
   dropout are all indistinguishable, which is fine — disposition item 5), and critically it does
   **not** establish that the upstream sensor/feed was actually alive at that tick — see "Known
   limitation" immediately below for why, and why that's an explicit, accepted boundary of #6.
-- A consumer (harness, fusion) reads the completed, already-produced `list[Detection | Heartbeat]`
-  for a sensor and checks: is there an entry (of either type) within `heartbeat_timeout_s` of any
-  given reference time? No adapter instance state, no live tick-loop coupling, and no new
-  orchestrator invocation contract is required — this works identically whether a consumer reads
-  the stream in one batch (as the harness naturally would, architecture.md §4) or incrementally.
+- **Consumer boundary (made explicit after independent review — see disposition item 23)**: the
+  harness reads the full `list[Detection | Heartbeat]` for its checks (schema/units/coordinate
+  checks apply to `Detection` entries only; the heartbeat/liveness check in architecture.md §4
+  reads both types). **Fusion does not** — architecture.md §5 already locks fusion's input as
+  "canonical `Detection` objects (post-harness-gate)" only. The orchestrator (full wiring lands in
+  #13, not this issue) is responsible for filtering `list[Detection | Heartbeat]` down to
+  `Detection`-only before the fusion handoff; `Heartbeat` entries are consumed solely by the
+  harness's liveness bookkeeping (and, later, by architecture.md §4 check 7's gap-injection/
+  coasting test). #6's job is to make this boundary an unambiguous, testable part of the contract
+  — e.g. a simple test asserting `isinstance` filtering of `translate()`'s own output correctly
+  separates the two types — not to build the orchestrator's actual wiring, which stays #13's
+  deliverable. This was previously left implicit; it's now stated so #7 and #13 don't have to
+  guess it.
 
 **Known limitation (new, honestly scoped — not silently resolved)**: because `translate()`
 independently recomputes the *expected* schedule from `sensor.update_rate_hz` and
@@ -292,6 +304,58 @@ and 3 non-blocking points:
     between `generate_sensor_detections`'s produced `t_s` values and `expected_ticks()`'s output —
     added to `tests/test_adapters.py`'s scope in "Project Structure" below.
 
+A **fourth** review was commissioned as a genuinely **independent, cold** review (fresh context,
+no prior involvement in this plan's history) specifically because 3 self-initiated re-reviews of
+one's own fix risks converging on confirmation rather than catching new classes of problem. It
+found 2 new blocking issues, 3 non-blocking issues, and one claim this plan disputes with direct
+evidence (recorded as item 26):
+
+23. **(Blocking, resolved)** The plan never stated who consumes `Heartbeat` entries downstream.
+    Architecture.md §5 already locks fusion's input as "canonical `Detection` objects
+    (post-harness-gate)" — `Heartbeat` was never meant to reach fusion, but the plan's own text
+    said "a consumer (harness, fusion) reads... `list[Detection | Heartbeat]`," implying fusion
+    might see heartbeats too, which would silently violate the already-locked §5 contract.
+    Resolved: added an explicit "Consumer boundary" statement (see Heartbeat design decision
+    above) — the orchestrator filters to `Detection`-only before the fusion handoff; `Heartbeat`
+    is consumed by the harness (and later, #7's gap-injection/coasting check) only.
+24. **(Blocking, resolved — flagged forward to #7, not fixed here)** Architecture.md §4 check 5
+    ("measured inter-detection interval... falls within `[min_hz, max_hz]`") is now ambiguous
+    given this design: during a stretch where a sensor's truth object is out of view, the output
+    is all `Heartbeat`, zero `Detection`, so an "inter-detection interval" literally cannot be
+    measured — not a bug in #6, but existing locked wording that no longer cleanly describes the
+    harness's job once #6 introduces `Heartbeat`. This is a **harness-implementation** question
+    (#7 owns check 5), not something #6 can resolve by itself, so it's recorded as a new
+    architecture.md §13 open question (see "Architecture doc update" below) rather than
+    silently left for #7 to discover independently.
+25. **(Non-blocking, resolved)** No validation that an input `RawDetection.sensor_id` matches the
+    `SensorConfig.sensor_id` the adapter was invoked with. Resolved: `translate()` now also raises
+    if any `raw_detections` entry's `sensor_id` doesn't match `sensor.sensor_id` — a misrouted
+    mixed-sensor batch is a contract violation, same treatment as an off-schedule `t_s` (item 20).
+    `Detection.sensor_id` is always the configured `sensor.sensor_id`, never copied from the raw
+    input, so there's one unambiguous source of truth for sensor identity.
+26. **(Reviewed and rejected, with evidence)** The reviewer argued the extensibility claim (spec
+    User Story 2 / SC-002) is narrower than architecture.md's "plug in a new sensor" promise,
+    because the protocol is fixed to `RawDetection` as input. **Checked against the actual locked
+    text**: architecture.md line 80 states the promise precisely as "adding a new sensor means
+    writing one adapter module + one config entry — **no changes to the harness, fusion engine,
+    classifier, or output layer**" — it does not claim "no changes to the simulator." Generating
+    a new sensor's raw output is already, by design, the simulator's job (§2), separate from the
+    adapter's job of translating that raw output into `Detection`. #6's extensibility proof (a
+    throwaway adapter over the existing `RawDetection` type) matches exactly what's actually
+    promised; no change made.
+27. **(Non-blocking, accepted as a recorded assumption)** Exact float equality between an input
+    `RawDetection.t_s` and `expected_ticks()`'s output is only guaranteed when both are computed by
+    the same in-memory call path — true today because architecture.md §3.3 (locked) specifies
+    in-process, non-serialized transport for this demo. Recorded explicitly: if a future adapter
+    ever receives `RawDetection` reconstructed from serialized data (JSON/YAML round-trip), float
+    equality could spuriously fail even for on-schedule input. Out of scope for #6 given §3.3's
+    current lock; flagged here rather than silently assumed away.
+28. **(Non-blocking, resolved)** This plan's own Constitution Check previously said "nothing new
+    to test for reproducibility beyond what #5 already covers" — inaccurate, since `start_utc` and
+    the new `detection_id` scheme are new deterministic outputs. Corrected below: the planned
+    timestamp/ID determinism tests are required reproducibility evidence, not optional schema
+    tests.
+
 ## Project Structure
 
 ### Documentation (this feature)
@@ -343,7 +407,10 @@ tests/
 │                                  # expected_ticks() coverage (t_s=0, non-binary-exact rate,
 │                                  # non-exact final tick, equality with generate_sensor_detections'
 │                                  # own t_s values), heartbeat_timeout_s validator rejection,
-│                                  # off-schedule RawDetection.t_s raises
+│                                  # off-schedule RawDetection.t_s raises, mismatched
+│                                  # RawDetection.sensor_id raises (FR-011), isinstance-based
+│                                  # Detection-only filtering of translate()'s output excludes
+│                                  # Heartbeat (FR-012's contract, not an orchestrator/#13 test)
 └── test_adapter_extensibility.py   # NEW: throwaway test adapter proving SensorAdapter alone
                                      # is sufficient to add a new sensor (spec User Story 2)
 ```
@@ -360,10 +427,15 @@ extraction in `src/simulator/detections.py` (disposition item 15).
 ## Architecture doc update (to be made in the implementing PR, not this plan)
 
 Once implementation is complete, the implementing PR must update architecture.md:
+- §3.4: revise the wording itself (not just §13), since independent review found that leaving it
+  unchanged would make the documented liveness guarantee *more* misleading once #6 ships, not
+  less. New wording must state plainly: a `Heartbeat` means no `Detection` was produced for a
+  nominal scheduled tick (schedule-coverage), and that this is **distinct from** detecting a
+  genuinely silent/failed sensor, which remains unresolved (pointer to §13).
 - §13: strike the heartbeat bullet, replace with a short "Resolved in #6" pointer: adapters emit
-  an explicit `Heartbeat` message per architecture.md §3.4's existing wording, computed as a pure
+  an explicit `Heartbeat` message per architecture.md §3.4's revised wording, computed as a pure
   function of the sensor's scheduled tick cadence (via the shared `expected_ticks()` helper) —
-  not the full reasoning above, which stays in this `plan.md`. Also *add two new* bullets (not
+  not the full reasoning above, which stays in this `plan.md`. Also *add three new* bullets (not
   previously tracked):
   - (surfaced by rubber-duck review item 6) `SensorConfig`'s single `update_rate_hz` field
     doesn't yet match §3.4's described `[min_hz, max_hz]` range — flagged for #7 (the harness,
@@ -375,9 +447,17 @@ Once implementation is complete, the implementing PR must update architecture.md
     check (§4 check 7, "dropped-message behavior") will need a mechanism to give `translate()`
     (or a successor) real evidence of actual feed coverage, not just the nominal schedule — open
     for #7 to resolve.
+  - (surfaced by independent review, disposition item 24) §4 check 5's "measured inter-detection
+    interval... falls within `[min_hz, max_hz]`" no longer cleanly applies once a sensor can
+    produce long `Heartbeat`-only stretches with zero `Detection`s (no target in view) — the
+    harness (#7) will need to measure cadence across `Detection | Heartbeat` messages, not
+    `Detection` alone, to avoid an undefined or falsely-failing rate check during idle periods.
 - §2: note `src/adapters/` is now populated (it was already listed as a placeholder).
 - §3.1: note `Detection.detection_id` is deterministically generated as
   `f"{sensor_id}:{tick_index}:{index_within_tick}"` by the adapter, not provided by the sensor.
+- §5: no wording change needed — its existing "Input: canonical `Detection` objects
+  (post-harness-gate)" phrasing already means `Heartbeat` is excluded; #6 just makes that explicit
+  in `plan.md`'s "Consumer boundary" (disposition item 23) rather than relying on an inference.
 - No new §12 row — the `Heartbeat`-as-signal choice directly satisfies §3.4's already-locked
   wording rather than establishing a new locked decision at that level; it's recorded in this
   `plan.md` and pointed to from §13 instead.

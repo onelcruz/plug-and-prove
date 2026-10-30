@@ -157,6 +157,16 @@ target.
 - **FR-010**: `translate()` MUST raise on any input `RawDetection.t_s` that doesn't exactly match
   a value produced by `expected_ticks(sensor.update_rate_hz, scenario.duration_s)` — an
   off-schedule input is a contract violation, not something to silently drop or misattribute.
+- **FR-011**: `translate()` MUST raise on any input `RawDetection` whose `sensor_id` doesn't match
+  the `sensor.sensor_id` the adapter is invoked with — a misrouted/mixed-sensor batch is a
+  contract violation, same treatment as FR-010's off-schedule case. `Detection.sensor_id` MUST
+  always come from the configured `sensor.sensor_id`, never copied from raw input, so there is one
+  unambiguous source of sensor identity (added after independent review).
+- **FR-012**: `list[Detection | Heartbeat]` output feeds the conformance harness (architecture.md
+  §4) in full; only the `Detection` entries are forwarded to the fusion engine, consistent with
+  architecture.md §5's locked "canonical `Detection` objects (post-harness-gate)" input contract.
+  `Heartbeat` entries are not fusion input (added after independent review flagged this boundary
+  as previously implicit).
 
 ### Key Entities
 
