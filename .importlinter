@@ -1,0 +1,17 @@
+[importlinter]
+root_package = src
+
+[importlinter:contract:no-ground-truth-leak]
+name = Downstream stages never see simulator ground truth
+type = forbidden
+source_modules =
+    src.adapters
+    src.conformance
+    src.fusion
+    src.classification
+    src.recommendation
+    src.output
+    src.recordkeeping
+forbidden_modules =
+    src.simulator.trajectories
+    src.simulator.scenario

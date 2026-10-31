@@ -23,6 +23,7 @@ pytest
 
 ```bash
 ruff check .
+lint-imports
 ```
 
 ## Project layout
