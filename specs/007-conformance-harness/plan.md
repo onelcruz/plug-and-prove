@@ -12,10 +12,10 @@ full-schedule probe stream, and a probe stream with a contiguous gap), a `Confor
 the only path from an adapter's `Detection`s to downstream consumers, and a deterministic Markdown
 report. Thresholds are added to config as required fields: sensor-declared limits (`min_hz`,
 `max_hz`, `max_accuracy_m`) on `SensorConfig`, and system acceptance limits (`max_clock_offset_s`,
-`min_alt_m`, `max_alt_m`) on `ScenarioConfig`. A type-only import fix in
-`src/simulator/detections.py` lets the harness use `RawDetection`/`expected_ticks`/`SensorAdapter`
-without breaking `no-ground-truth-leak`, and `src.adapters` is re-added to that contract. This
-resolves the four §13 bullets assigned to #7. Full decision record: [research.md](./research.md).
+`min_alt_m`, `max_alt_m`) on `ScenarioConfig`. The harness imports `RawDetection`,
+`expected_ticks`, and `SensorAdapter` cleanly thanks to the type-only import fix delivered
+separately by **#26 (PR #27)**, which #7 is blocked by. This resolves the four §13 bullets assigned
+to #7. Full decision record: [research.md](./research.md).
 
 ## Technical Context
 
@@ -52,15 +52,15 @@ itself is #8.
   numeric logic (checks 4–6) are non-trivial, so an independent review is required before merge
   (`gh pr edit <N> --add-reviewer "@copilot"`), and its outcome goes in the PR body. ✅ planned
 - **IV. Narrow, contract-bound**: Work stays in `src/conformance/` plus `src/config/models.py`
-  (extend only). **One disclosed exception:** `src/simulator/detections.py` gets a type-only
-  `TYPE_CHECKING` guard (no behavior change). The harness touches adapters only through the
-  `SensorAdapter` protocol. ✅ with disclosed exception
+  (extend only, the cross-cutting config pattern #5/#6 used). The out-of-package import fix was
+  split into **#26 (PR #27)** per analyze finding D1, so #7 edits nothing under `src/simulator/` or
+  `.importlinter`. The harness touches adapters only through the `SensorAdapter` protocol. ✅
 - **V. Reproducibility**: The harness introduces no randomness, and probes are deterministic.
   Report determinism is tested (byte-identical). Ruff's `TID251` ban continues to apply. ✅
 - **VI. Explainability**: Every `CheckResult` carries a validated, non-empty, single-line reason. ✅
 - **VII. Architecture health & gates**: Unsettled (rules 1 and 3). The spec, clarify, plan, tasks,
-  and analyze artifacts are permanent in this folder. Module boundaries stay mechanically enforced:
-  `src.adapters` is re-added to `no-ground-truth-leak`, offsetting `exclude_type_checking_imports`. ✅
+  and analyze artifacts are permanent in this folder. Module boundaries stay mechanically enforced
+  by `no-ground-truth-leak`, which #26 extends back to `src.adapters`. ✅
 
 **Post-design re-check**: no violations; Complexity Tracking not needed.
 
@@ -73,7 +73,7 @@ itself is #8.
 | Inputs | Real stream (checks 1–4) plus full and gap probe streams (checks 1–7) | R3, spec Q3 |
 | Check 3 bound | `range_m + 6 × accuracy_m` from sensor position | R4, spec Q4 |
 | Limits | Sensor: `min_hz`, `max_hz`, `max_accuracy_m`. Scenario: `max_clock_offset_s`, `min_alt_m`, `max_alt_m` | R5, spec Q5 |
-| Import boundary | `TYPE_CHECKING` guard plus `exclude_type_checking_imports`; re-add `src.adapters` | R6 |
+| Import boundary | Prerequisite #26 / PR #27 (`TYPE_CHECKING` guard, `exclude_type_checking_imports`, re-add `src.adapters`) | R6 |
 | Offset invariance | Checks 5–7 use counts, intervals, and spans only | R7, FR-009a |
 | Schema check | Re-validate instances (catches `model_construct`/`model_copy` bypass); non-models FAIL | R8 |
 | Isolation | Adapter and check exceptions → FAIL for the dependent checks only | R9 |
@@ -119,15 +119,14 @@ src/
 │   ├── harness.py          # NEW: run_harness -> HarnessRun
 │   ├── gate.py             # NEW: ConformanceGate
 │   └── report.py           # NEW: render_markdown
-├── config/models.py        # EXTEND: 3 SensorConfig + 3 ScenarioConfig fields and validators
-└── simulator/detections.py # PRINCIPLE IV EXCEPTION: TruthObject import under TYPE_CHECKING
+└── config/models.py        # EXTEND: 3 SensorConfig + 3 ScenarioConfig fields and validators
+# src/simulator/detections.py and .importlinter: changed by prerequisite #26 (PR #27), not here
 
 config/
 ├── sensors/example_sensor.yaml   # UPDATE: min_hz, max_hz, max_accuracy_m
 ├── sensors/sensor_2.yaml         # UPDATE: min_hz, max_hz, max_accuracy_m
 └── scenarios/example_scenario.yaml  # UPDATE: max_clock_offset_s, min_alt_m, max_alt_m
 
-.importlinter               # UPDATE: exclude_type_checking_imports; re-add src.adapters
 docs/architecture.md        # UPDATE: §4 pointer + checks 3/7 wording; §13 four bullets resolved
 
 tests/
@@ -148,7 +147,8 @@ one module per responsibility so each check is independently importable and test
 
 - **Known-answer tests (external values)**:
   - Check 3: a detection exactly 1° of latitude north of the sensor lies 111,195 m away (the
-    textbook figure for a 6,371 km spherical Earth: π/180 × 6,371,000). With `range_m` = 100,000
+    published one-degree arc length on a sphere of IUGG mean Earth radius R₁ = 6,371.0 km; source
+    cited in the test docstring). With `range_m` = 100,000
     and `accuracy_m` = 1 it FAILS; with `range_m` = 111,200 it PASSES.
   - Check 5: 11 detections spaced exactly 0.5 s apart measure 2.0 Hz (hand-derived: 10 intervals
     over 5 s).
@@ -174,12 +174,11 @@ Per research.md R11:
   not pinned in §2–§11).`
 - Paste the `/speckit-analyze` summary table.
 - "Architecture doc" section: note the §4 check 3 and check 7 changes (user instruction).
-- Principle IV exception: the `detections.py` `TYPE_CHECKING` change.
+- Note that the import-boundary prerequisite landed separately in #26 / PR #27.
 - Import probes: conformance → `simulator.detections` ALLOWED; conformance →
   `simulator.trajectories` BLOCKED; adapters → `simulator.trajectories` BLOCKED.
 - Independent review outcome (`@copilot`), with every finding addressed or dismissed with reasoning.
 
 ## Complexity Tracking
 
-Not applicable. No unjustified constitution violations; the Principle IV exception is disclosed
-above.
+Not applicable. No constitution violations (the out-of-package change was split into #26).

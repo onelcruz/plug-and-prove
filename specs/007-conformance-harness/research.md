@@ -34,7 +34,7 @@ Decisions below resolve every open item from spec.md (Clarifications, Session 20
 - **Decision**: Each adapter is run on three inputs:
   1. **Real stream** — the caller's `RawDetection` list for that sensor (from the simulator).
   2. **Full probe** — one `RawDetection` at *every* scheduled tick (`expected_ticks`).
-  3. **Gap probe** — the full probe with a contiguous run of ticks withheld.
+  3. **Gap probe** — the full probe with a contiguous run of **withheld ticks**.
   Checks 1–4 evaluate outputs of all three runs; checks 5–7 evaluate probe runs only (5 and 6: full
   probe; 7: gap probe).
 - **Probe position**: due east of the sensor by `range_m / 2` (via `src.simulator.geo.offset_to_latlon`),
@@ -94,8 +94,9 @@ Decisions below resolve every open item from spec.md (Clarifications, Session 20
   exclusion comment.
 - **Evidence** (prototyped and reverted during planning): conformance → `simulator.detections`
   KEPT (2 kept, 0 broken); conformance → `simulator.trajectories` BROKEN; ruff clean; 43 passed.
-- **Principle IV exception**: one file outside `src/conformance/`, no runtime behavior change;
-  disclosed in the PR body.
+- **Split out (analyze finding D1)**: Principle IV requires out-of-package gaps to be filed
+  separately, so this change is delivered by **#26 (PR #27)**, and #7 is blocked by it. #7 makes no
+  edits to `src/simulator/` or `.importlinter`.
 - **Rejected**: moving `RawDetection`/`expected_ticks` to a new module; dependency-injecting the raw
   type and tick function; removing `src.conformance` from the contract.
 
@@ -137,4 +138,6 @@ Decisions below resolve every open item from spec.md (Clarifications, Session 20
   this folder. architecture.md gets: (1) a one-line pointer under §4 to `specs/007-conformance-harness/`;
   (2) in-place minimal rewording of §4 checks 3 and 7 (otherwise the doc would state something false);
   (3) the four §13 bullets assigned to #7 struck through with one "Resolved in #7" pointer line.
-  §12 is not touched.
+  §12 is not touched. **Confirmed by the maintainer (2026-10-31, analyze finding I1)**: the
+  "one-line pointer" rule governs where detail lives; the "update architecture.md when you resolve a
+  §13 question or deviate" rule requires the minimal in-place corrections in (2) and (3).

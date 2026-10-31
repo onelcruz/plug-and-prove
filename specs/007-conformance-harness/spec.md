@@ -30,12 +30,12 @@ schema, §3.4/§5 (`Heartbeat` is harness-only; fusion consumes only post-gate `
 
 ### Session 2026-10-31
 
-- Q: How should check 7 ("dropped-message behavior") be scoped, given §4 defines it against the fusion engine's coasting behavior and the fusion engine (#9) doesn't exist yet? → A: C — check 7 is an adapter-side check: the harness removes raw inputs to create gaps and verifies the adapter does not crash, emits a `Heartbeat` for every gapped tick, and neither fabricates nor duplicates `Detection`s. Fusion-coasting verification moves to #9 (acceptance criterion added there). §4 check 7's wording is updated in architecture.md in this PR. The gate test uses a stub downstream consumer.
+- Q: How should check 7 ("dropped-message behavior") be scoped, given §4 defines it against the fusion engine's coasting behavior and the fusion engine (#9) doesn't exist yet? → A: C — check 7 is an adapter-side check: the harness removes raw inputs to create gaps and verifies the adapter does not crash, emits a `Heartbeat` for every withheld tick, and neither fabricates nor duplicates `Detection`s. Fusion-coasting verification moves to #9 (acceptance criterion added there). §4 check 7's wording is updated in architecture.md in this PR. The gate test uses a stub downstream consumer.
 - Q: What should check 4 use as each `Detection`'s simulator reference time when measuring clock offset? → A: B — the harness's own inputs: reference times are `start_utc + raw.t_s` for every raw input the harness supplied, compared in sorted order against the sorted `Detection.timestamp_utc` values; a count mismatch FAILS with a reason. Resolves §13 bullet (d): `raw_payload["t_s"]` does not become load-bearing. Accepted limitation (recorded in plan.md): this only works because the harness supplies the inputs; a real networked sensor would need a different reference.
-- Q: What raw input should the harness feed an adapter when evaluating it? → A: C — both. The harness generates deterministic probe streams (one raw input per scheduled tick at a fixed in-range position, plus gap variants); checks 1–4 run over everything the harness fed (probe + real scenario stream), checks 5–7 run on probe streams only, where the harness controls exactly which ticks have input. Resolves §13 bullets (b) (real gap evidence comes from harness-withheld ticks) and (c) (check 5 measures `Detection`-only rate on a probe stream where the target is always in view, so no `Heartbeat`-only stretch can occur).
+- Q: What raw input should the harness feed an adapter when evaluating it? → A: C — both. The harness generates deterministic probe streams (one raw input per scheduled tick at a fixed in-range position, plus a gap probe with withheld ticks); checks 1–4 run over everything the harness fed (probe + real scenario stream), checks 5–7 run on probe streams only, where the harness controls exactly which ticks have input. Resolves §13 bullets (b) (real gap evidence comes from harness-withheld ticks) and (c) (check 5 measures `Detection`-only rate on a probe stream where the target is always in view, so no `Heartbeat`-only stretch can occur).
 - Q: What geographic bounds should check 3 (coordinate frame) enforce, given §4's literal "defended-area bounding box" would reject correct detections? → A: A — per-sensor coverage circle: a `Detection` FAILS if it is more than `range_m + 6 × accuracy_m` from the sensor's position (configured `lat`/`lon`, else the defended-area center). No new config fields. architecture.md §4 check 3 is reworded in this PR.
 - Q: How should the new conformance limits be added to config? → A: A, modified — `min_hz`, `max_hz`, and `max_accuracy_m` are flat, required `SensorConfig` fields (validators: `min_hz ≤ update_rate_hz ≤ max_hz`, `accuracy_m ≤ max_accuracy_m`). `max_clock_offset_s`, `min_alt_m`, and `max_alt_m` are flat, required `ScenarioConfig` fields (validator: `min_alt_m < max_alt_m`): they are system acceptance limits, not sensor properties, and a sensor's own config must not set the bar it is tested against (otherwise #8's sensor 3 could pass by loosening its own tolerance). Resolves §13 bullet (a).
-- Q (raised during `/speckit-plan`): How can the harness use `RawDetection`, `expected_ticks()`, and the `SensorAdapter` protocol when `src.simulator.detections` imports `trajectories` (an indirect ground-truth import that breaks `no-ground-truth-leak`)? → A: Move `detections.py`'s `TruthObject` import (annotation-only) under `if TYPE_CHECKING:` and set `exclude_type_checking_imports = True` in `.importlinter`; also re-add `src.adapters` to `no-ground-truth-leak` in this PR to offset the linter loosening. Disclosed as a Principle IV exception (one file outside `src/conformance/`, no behavior change).
+- Q (raised during `/speckit-plan`): How can the harness use `RawDetection`, `expected_ticks()`, and the `SensorAdapter` protocol when `src.simulator.detections` imports `trajectories` (an indirect ground-truth import that breaks `no-ground-truth-leak`)? → A: Move `detections.py`'s `TruthObject` import (annotation-only) under `if TYPE_CHECKING:` and set `exclude_type_checking_imports = True` in `.importlinter`; also re-add `src.adapters` to `no-ground-truth-leak` in this PR to offset the linter loosening. Per `/speckit-analyze` finding D1 (Principle IV), this change is **split out of #7** into its own issue #26 (PR #27), which #7 is now blocked by; #7 itself makes no edits outside its package.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -186,15 +186,17 @@ admitted/blocked verdict.
   `heartbeat_timeout_s` — i.e. the adapter went silent early or started late.
 - **FR-008**: The harness MUST feed each adapter two kinds of input: (a) the real scenario raw
   stream for that sensor, supplied by the caller; and (b) deterministic, harness-generated probe
-  streams — one `RawDetection` per scheduled tick at a fixed position inside the sensor's coverage
-  and plausible-units bounds, plus gap variants with selected ticks withheld. Checks 1–4 evaluate
+  streams — a **full probe** (one `RawDetection` per scheduled tick at a fixed position inside the
+  sensor's coverage and plausible-units bounds) and a **gap probe** (the full probe with a contiguous
+  run of **withheld ticks**). Checks 1–4 evaluate
   the adapter's output over all inputs; checks 5–7 evaluate only probe-stream output (Clarifications,
   Q3). Probe streams use no randomness, so results are identical across runs (Principle V).
-- **FR-009**: Check 7 (dropped-message behavior) MUST inject synthetic gaps by withholding the
-  probe stream's raw input for selected scheduled ticks, invoke the adapter, and FAIL if the adapter
+- **FR-009**: Check 7 (dropped-message behavior) MUST run the adapter on the gap probe (raw input
+  withheld for a contiguous run of scheduled ticks — the withheld ticks) and FAIL if the adapter
   raises, if the number of `Detection`s differs from the number of raw inputs supplied (fabricated or
-  lost detections), if the number of `Heartbeat`s differs from the number of withheld ticks (a gapped
-  tick left unaccounted for, or a spurious `Heartbeat`), or if any `detection_id` is duplicated. It
+  lost detections), if the number of `Heartbeat`s differs from the number of withheld ticks (a
+  withheld tick left unaccounted for, or a spurious `Heartbeat`), or if any `detection_id` is
+  duplicated. It
   evaluates the adapter only; the fusion engine's coasting behavior under gaps is verified in #9, not
   here (Clarifications, Q1). architecture.md §4 check 7 is reworded accordingly in the same PR.
 - **FR-009a**: Checks 5, 6, and 7 MUST be invariant to a constant `timestamp_utc` offset: they use
@@ -213,21 +215,24 @@ admitted/blocked verdict.
 - **FR-013**: The harness MUST generate a Markdown report listing, per adapter, all 7 checks with
   PASS/FAIL and a one-line reason, plus the overall verdict. Output MUST be deterministic for
   identical inputs.
-- **FR-014**: The harness MUST complete against both known-good adapters in under 60 seconds.
+- **FR-014**: The harness MUST complete against both known-good adapters in under 60 seconds,
+  measured end to end, including generating the real simulated input streams.
 - **FR-015**: Conformance limits MUST be configured in YAML via `src/config/models.py`, extending —
   not redefining — the existing models, as required fields with no silent defaults (Clarifications,
   Q5):
   - `SensorConfig` (sensor properties): `min_hz`, `max_hz`, `max_accuracy_m`; validators reject
     `min_hz > update_rate_hz`, `update_rate_hz > max_hz`, and `accuracy_m > max_accuracy_m`.
   - `ScenarioConfig` (system acceptance limits a sensor cannot loosen for itself):
-    `max_clock_offset_s`, `min_alt_m`, `max_alt_m`; validator rejects `min_alt_m >= max_alt_m`.
+    `max_clock_offset_s`, `min_alt_m`, `max_alt_m`; validators reject `min_alt_m >= max_alt_m`
+    and any configured drone/bird/clutter `altitude_m` outside `[min_alt_m, max_alt_m]` (a config
+    that would guarantee a check-2 false failure on known-good adapters).
   `update_rate_hz` remains the nominal rate the adapter schedules on; `[min_hz, max_hz]` is the band
   check 5 accepts. This resolves §13 bullet (a).
 - **FR-016**: The harness MUST NOT import simulator ground truth (`src.simulator.trajectories`,
   `src.simulator.scenario`), directly or indirectly, enforced by the `no-ground-truth-leak` import
-  contract. That contract MUST also cover `src.adapters` again (re-added in this PR), and
-  `detections.py`'s annotation-only `TruthObject` import MUST be `TYPE_CHECKING`-guarded with
-  `exclude_type_checking_imports = True` so the contract evaluates runtime imports only.
+  contract. Prerequisite delivered by #26 (not by this feature): `src.adapters` re-added to that
+  contract, `detections.py`'s annotation-only `TruthObject` import `TYPE_CHECKING`-guarded, and
+  `exclude_type_checking_imports = True`. This feature must keep `lint-imports` green.
 
 ### Key Entities
 
@@ -256,7 +261,8 @@ admitted/blocked verdict.
   detection count must also shift timestamps.)
 - **SC-004**: Zero `Detection`s from a blocked adapter are obtainable through the gate, verified by
   a test.
-- **SC-005**: Full harness run against both known-good adapters completes in under 60 seconds.
+- **SC-005**: Full harness run against both known-good adapters completes in under 60 seconds,
+  including generating the real simulated input streams.
 - **SC-006**: Every check result in the report has exactly one non-empty reason line.
 
 ## Assumptions
@@ -269,7 +275,8 @@ admitted/blocked verdict.
   `src.simulator.scenario`) and passed in; the harness never imports `src.simulator.scenario` or
   `src.simulator.trajectories`. The harness imports `RawDetection`/`expected_ticks` from
   `src.simulator.detections` and the `SensorAdapter` protocol from `src.adapters.base`; this is
-  contract-clean only after the type-only import fix in Clarifications (planning-time decision).
+  contract-clean only after #26 (PR #27) lands the type-only import fix (Clarifications,
+  planning-time decision). #7 is blocked by #26.
 - Report format is Markdown only (§4 says "Markdown/HTML"; Markdown is sufficient for the demo and
   the test record). HTML is out of scope.
 - New limit fields are required (no silent defaults), following the precedent #6 set for

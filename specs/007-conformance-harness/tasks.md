@@ -17,19 +17,20 @@ check, an end-to-end run, and a gate test.
 
 ---
 
-## Phase 1: Setup (import boundary — research.md R6)
+## Phase 1: Setup (prerequisite #26 — research.md R6)
 
-**Purpose**: Make `RawDetection`/`expected_ticks`/`SensorAdapter` importable from
-`src/conformance/` without breaking `no-ground-truth-leak`.
+**Purpose**: Confirm the import-boundary fix, split out of #7 into #26 (PR #27) to satisfy
+Principle IV, is on `main` before any #7 code is written. #7 makes **no** edits to
+`src/simulator/` or `.importlinter`.
 
-- [ ] T001 In `src/simulator/detections.py`, move `from src.simulator.trajectories import TruthObject`
-      under `if TYPE_CHECKING:` (add `from typing import TYPE_CHECKING`). Annotation-only usage; no
-      behavior change. **Principle IV exception**: disclose in the PR body.
-- [ ] T002 Update `.importlinter`: add `exclude_type_checking_imports = True` under `[importlinter]`;
-      re-add `src.adapters` as the first `source_modules` entry of `no-ground-truth-leak`; delete the
-      two now-stale "src.adapters is excluded" comment lines. Leave `detection-schema-truth-free`
-      unchanged (depends on T001).
-- [ ] T003 Run `lint-imports` (expect `Contracts: 2 kept, 0 broken.`), then run the three probes from
+- [ ] T001 Confirm #26 (PR #27) is merged, then merge `origin/main` into
+      `feature/7-conformance-harness`. If it isn't merged, stop (`.github/copilot-instructions.md`
+      "Before writing code", step 1).
+- [ ] T002 Read-only check that `.importlinter` on the merged branch has
+      `exclude_type_checking_imports = True` and `src.adapters` in `no-ground-truth-leak`, and that
+      `src/simulator/detections.py` imports `TruthObject` only under `TYPE_CHECKING`. If anything
+      differs, stop and report (depends on T001).
+- [ ] T003 Run `lint-imports` (expect `Contracts: 2 kept, 0 broken.`), then the three probes from
       quickstart.md §2 (conformance → `simulator.detections` ALLOWED; conformance →
       `simulator.trajectories` BLOCKED; adapters → `simulator.trajectories` BLOCKED). Record the
       output for the PR body, delete the probe files, and confirm `git status` shows none (depends
@@ -104,17 +105,22 @@ contracts/harness-api.md and adds its pass and fail fixtures to `tests/test_conf
 
 - [ ] T016 [US3] `check_schema(messages)`: re-validate `Detection`/`Heartbeat` instances via
       `type(m).model_validate(m.model_dump())`; any other type FAILS; zero `Detection`s FAILS with
-      "no Detections to evaluate". Fail fixture: a `Detection` produced by
-      `model_copy(update={"confidence": 1.5})`, plus a plain `dict` message (FR-002, R8).
+      "no Detections to evaluate". The FAIL reason names the first offending message (its index in
+      the evaluated stream and its `detection_id`, if any) and the first failing field. Fail
+      fixtures: a `Detection` produced by `model_copy(update={"confidence": 1.5})` (reason must
+      contain `confidence`), plus a plain `dict` message (FR-002, R8).
 - [ ] T017 [US3] `check_units(detections, sensor, scenario)`: FAIL if any `alt_m` is outside
       `[min_alt_m, max_alt_m]` or any `accuracy_m > max_accuracy_m`; the reason names the
-      `detection_id`, the value, and the bound. Fail fixture: the drone's 120 m reported in feet
-      (393.7); boundary-equal values PASS (FR-003).
+      `detection_id`, the value, and the bound. Zero `Detection`s FAILS with "no Detections to
+      evaluate" (spec Edge Cases). Fail fixtures: the drone's 120 m reported in feet (393.7), and an
+      empty list. Boundary-equal values PASS (FR-003).
 - [ ] T018 [US3] `check_coordinate_frame(detections, sensor, scenario)`: FAIL if
-      `distance_m(sensor_pos, det) > range_m + 6 × accuracy_m`. Known-answer test: 1° latitude north
-      of the sensor = 111,195 m (π/180 × 6,371,000), FAIL with `range_m` = 100,000 /
-      `accuracy_m` = 1, PASS with `range_m` = 111,200. Fail fixtures: swapped lat/lon, sign-flipped
-      lon (FR-004, R4).
+      `distance_m(sensor_pos, det) > range_m + 6 × accuracy_m`. Zero `Detection`s FAILS with "no
+      Detections to evaluate" (spec Edge Cases). Known-answer test: 1° latitude north of the sensor =
+      111,195 m — the published length of one degree of arc on a sphere of the IUGG mean Earth radius
+      R₁ = 6,371.0 km (π/180 × R₁); cite this source in the test docstring. FAIL with
+      `range_m` = 100,000 / `accuracy_m` = 1, PASS with `range_m` = 111,200. Fail fixtures: swapped
+      lat/lon, sign-flipped lon, empty list (FR-004, R4).
 - [ ] T019 [US3] `check_clock_offset(runs, scenario)`: per run, sorted references
       `start_utc + raw.t_s` vs sorted `Detection.timestamp_utc`; FAIL on count mismatch or worst
       |diff| > `max_clock_offset_s`; reason gives magnitude (3 decimals), direction ("ahead"/
@@ -148,7 +154,7 @@ admits sensors 1 and 2 in under 60 s.
 
 - [ ] T023 [US1] Create `src/conformance/harness.py`: `run_harness(adapter, sensor, scenario,
       real_raw) -> HarnessRun` (`result`, `real_detections`). It calls `adapter` on real, full probe,
-      and gap probe inputs, each wrapped so an exception makes every dependent check FAIL with
+      and gap probe inputs, each call wrapped so an exception makes every dependent check FAIL with
       `adapter raised <Type>: <first line>`. It wraps each check call (an unexpected exception → that
       check FAILS only). It routes evidence per research.md R3: checks 1–4 over all runs, 5–6 full
       probe, 7 gap probe. Type `adapter` with `SensorAdapter` from `src.adapters.base` (FR-008,
@@ -160,8 +166,10 @@ admits sensors 1 and 2 in under 60 s.
 - [ ] T025 [US1] Create `tests/test_conformance_harness.py`: build the real streams with
       `src.simulator.scenario.run_simulation` on the example scenario and both sensor YAMLs; submit
       `src.adapters.sensor1`/`sensor2` to a `ConformanceGate`; assert all 7 checks PASS for each,
-      both are admitted, `admitted_detections` is non-empty and contains only `Detection`s, and
-      total wall-clock time < 60 s via `time.perf_counter` (SC-001, SC-005; depends on T024).
+      both are admitted, `admitted_detections` is non-empty and contains only `Detection`s. Assert
+      total wall-clock < 60 s via `time.perf_counter`, measured from **before** `run_simulation`
+      (generating the real streams counts toward the budget) through both `submit` calls (SC-001,
+      SC-005, FR-014; depends on T024).
 
 **Checkpoint**: The MVP gate admits the known-good adapters.
 
@@ -179,7 +187,7 @@ admits sensors 1 and 2 in under 60 s.
       `Heartbeat`, via `model_copy`). Assert that check 4 FAILS with a reason containing the measured
       offset and "0.5", checks 1–3 and 5–7 PASS, and the result is not admitted (SC-002; depends on
       T025).
-- [ ] T027 [P] [US2] Create `tests/test_conformance_gate.py`. (a) Stub-fusion test: a `StubFusion`
+- [ ] T027 [US2] Create `tests/test_conformance_gate.py`. (a) Stub-fusion test: a `StubFusion`
       consumer ingests `gate.admitted_detections(id)` for every submitted sensor; it receives 0
       detections from the offset adapter and > 0 from sensor 1 (SC-004). (b) Re-admit: re-submitting
       the same sensor with the fixed adapter flips the verdict to admitted and releases its
@@ -218,7 +226,7 @@ admits sensors 1 and 2 in under 60 s.
 - [ ] T032 Commit (imperative summary, why, `#7`, Co-authored-by trailer). Open the PR
       `feature/7-conformance-harness` → `main` with the PR-body requirements listed in plan.md (first
       line classification, analyze table, Architecture doc section noting the §4 check 3/7 changes,
-      Principle IV disclosure, import probes, check outputs). Confirm CI is green.
+      import probes (re-run from T003), check outputs). Confirm CI is green.
 - [ ] T033 Request the independent review: `gh pr edit <N> --add-reviewer "@copilot"`. Address or
       dismiss (with reasoning) every finding, re-run T031, and record the outcome in the PR body.
 
@@ -227,7 +235,7 @@ admits sensors 1 and 2 in under 60 s.
 ## Dependencies & Execution Order
 
 ```text
-Phase 1 (T001→T002→T003)
+Phase 1 (T001→T002→T003)   # verifies #26 / PR #27 merged; no edits
    ↓
 Phase 2 (T004→T005 → {T006,T007,T008,T009,T010,T011} → T012; T013, T014 → T015)
    ↓
@@ -247,7 +255,8 @@ Phase 7 (T030 → T031 → T032 → T033)
 
 - Phase 2: T006/T007/T008 (three YAMLs) and T009/T010/T011 (three test files) in parallel;
   T013 ∥ T014.
-- Phase 5/6: T027 (gate tests) ∥ T028 (report module).
+- Phase 5/6: T028 (report module, needs only T013) ∥ T026/T027. T027 is not `[P]` because it
+  reuses T026's fixture.
 
 ## Implementation Strategy
 

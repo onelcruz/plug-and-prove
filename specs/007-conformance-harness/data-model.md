@@ -46,6 +46,13 @@ Canonical names: 1 `schema`, 2 `units`, 3 `coordinate_frame`, 4 `clock_offset`, 
 | `checks` | `tuple[CheckResult, ...]` | Exactly 7, numbers 1–7 in order (validator) |
 | `admitted` | `bool` (computed property) | `all(c.passed for c in checks)` |
 
+### `HarnessRun` (`src/conformance/harness.py`, return type of `run_harness`)
+
+| Field | Type | Rule |
+|---|---|---|
+| `result` | `HarnessResult` | The 7 check outcomes for this adapter |
+| `real_detections` | `list[Detection]` | `Detection`s from the real-stream run only (never probe output, never `Heartbeat`s); what the gate stores and may release |
+
 ## Gate state (`src/conformance/gate.py`)
 
 `ConformanceGate` holds, per `sensor_id`: the latest `HarnessResult` and the real-stream

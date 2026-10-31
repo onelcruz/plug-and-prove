@@ -67,7 +67,9 @@ rows. Byte-identical output for identical input.
 
 ## Import-boundary contract (`.importlinter`)
 
-- `no-ground-truth-leak` source modules: `src.adapters` (re-added), `src.conformance`, and the
-  existing downstream packages. Forbidden: `src.simulator.trajectories`, `src.simulator.scenario`.
+Established by prerequisite #26 (PR #27), not changed by #7:
+
+- `no-ground-truth-leak` source modules: `src.adapters`, `src.conformance`, and the other
+  downstream packages. Forbidden: `src.simulator.trajectories`, `src.simulator.scenario`.
 - `[importlinter] exclude_type_checking_imports = True`.
 - `detection-schema-truth-free` unchanged.
