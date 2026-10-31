@@ -14,12 +14,15 @@ buggy third adapter in issue #8), not the simulator's.
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, NonNegativeFloat, PositiveFloat
 
 from src.config.models import ScenarioConfig, SensorConfig
 from src.simulator.geo import distance_m, latlon_to_offset, offset_to_latlon
-from src.simulator.trajectories import TruthObject
+
+if TYPE_CHECKING:
+    from src.simulator.trajectories import TruthObject
 
 
 class RawDetection(BaseModel):
