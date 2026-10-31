@@ -16,3 +16,11 @@ source_modules =
 forbidden_modules =
     src.simulator.trajectories
     src.simulator.scenario
+
+[importlinter:contract:detection-schema-truth-free]
+name = Detection/Heartbeat schema module never depends on the simulator
+type = forbidden
+source_modules =
+    src.adapters.messages
+forbidden_modules =
+    src.simulator
