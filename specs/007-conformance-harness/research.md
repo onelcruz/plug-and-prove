@@ -87,7 +87,7 @@ Decisions below resolve every open item from spec.md (Clarifications, Session 20
 
 ## R6 — Import boundary fix (planning-time decision)
 
-- **Decision**: In `src/simulator/detections.py`, move `from src.simulator.trajectories import
+- **Decision** (delivered by #26 / PR #27, not by #7): In `src/simulator/detections.py`, move `from src.simulator.trajectories import
   TruthObject` under `if TYPE_CHECKING:` (it is used only in an annotation, and
   `from __future__ import annotations` is already active). Add `exclude_type_checking_imports = True`
   to `[importlinter]`. Re-add `src.adapters` to `no-ground-truth-leak` and drop the now-stale
