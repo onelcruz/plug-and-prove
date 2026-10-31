@@ -1,21 +1,15 @@
 <!--
 Sync Impact Report
-- Version change: 1.2.0 → 1.3.0
-- Rationale: Principle VII materially expanded. Previously "unsettled design" was left to an
-  agent's unstructured judgment, with no written rule. Replaced with a concrete, checkable
-  4-rule classification an agent MUST apply and state out loud before claiming any sub-issue.
-  Added a requirement that every unsettled sub-issue gets a permanent, scoped, per-issue
-  `specs/<issue-number>-<slug>/{spec,plan,tasks}.md` artifact trail (using Spec Kit's
-  spec/plan/tasks structure), committed and never deleted — closing a gap where the only two
-  places a design decision could live were an ephemeral issue/PR thread or a permanently-growing
-  `docs/architecture.md`, with nothing scoped in between. Explicitly applies going forward only;
-  #4 and #5 are not backfilled.
-- Modified principles: VII. Recurring Architecture Health & Rigorous Pre-Implementation Review
-  (expanded: concrete settled/unsettled rule, specs/ artifact requirement)
+- Version change: 1.3.0 → 1.4.0
+- Rationale: Removed the settled/unsettled rule text duplicated from
+  .github/copilot-instructions.md (now single-sourced there). Replaced the undefined
+  pre-implementation review step with Spec Kit's /speckit-clarify and /speckit-analyze
+  gates. Replaced the every-2-3-PRs health pass with CI-enforced import-linter contracts.
+  Noted CI enforcement of Principle V.
+- Modified principles: V (enforcement note), VII (renamed, condensed)
 - Added sections: none
 - Removed sections: none
-- Templates requiring updates: .github/copilot-instructions.md (settled/unsettled checklist,
-  specs/ workflow steps) — updated in the same change.
+- Templates requiring updates: none (.github/copilot-instructions.md updated in prior PR)
 - Follow-up TODOs: none
 -->
 # Plug-and-Prove Constitution
@@ -63,7 +57,7 @@ that swapping or extending one component never requires changing another.
 All randomness MUST flow through the project's single seeded RNG utility. Given the same seed and
 configuration, a run MUST produce identical ground truth, detections, tracks, and classifications
 across executions. Every component that introduces stochastic behavior MUST have a test asserting
-this property.
+this property. This rule is enforced by ruff's banned-api check (`TID251`) in CI.
 
 ### VI. Explainability
 Every track, classification, and recommendation the system produces MUST carry a human-readable
@@ -71,50 +65,18 @@ reason, not just a label or a number. Every conformance-harness check result MUS
 plus a one-line reason. This is a demo about trustworthy, inspectable automation — a correct but
 unexplained answer does not satisfy this principle.
 
-### VII. Recurring Architecture Health & Rigorous Pre-Implementation Review
+### VII. Architecture Health & Pre-Implementation Gates
 Per-PR review (Principle III) checks one diff in isolation; it does not catch drift accumulating
-*across* merged PRs. After every 2-3 merged sub-issues, an agent MUST perform a dedicated
-architecture-health pass: re-read `docs/architecture.md` against the current state of `src/`, and
-check for module-boundary violations, duplicated logic that should be shared, contracts that have
-quietly drifted from what's documented, and any accumulated scope creep across the reviewed PRs.
-Findings MUST either be fixed immediately (if small) or filed as a tracked issue (if larger than a
-quick fix), not silently noted and dropped.
+*across* merged PRs. Module-boundary rules that can be checked mechanically MUST be expressed as
+import-linter contracts (`.importlinter`) and enforced in CI rather than as prose. Drift that
+tooling cannot detect is reviewed at the maintainer's discretion; findings MUST be fixed
+immediately (if small) or filed as a tracked issue.
 
-Separately, before claiming any sub-issue, an agent MUST classify it as **settled** or
-**unsettled** against `docs/architecture.md`, and state that classification (and which rule fired)
-in chat before proceeding. A sub-issue is **unsettled** if any of the following is true:
-
-1. Implementing it requires resolving a bullet explicitly listed in `docs/architecture.md` §13
-   (Open questions / risks).
-2. Implementing it would add or change a row in `docs/architecture.md` §12 (Key design decisions,
-   locked) — i.e. it requires genuinely choosing between two or more real alternatives, not
-   selecting internal implementation detail.
-3. A component's interface, schema, algorithm, or threshold that the issue depends on is not
-   fully pinned down in `docs/architecture.md` §2-§11 — the missing part would have to be invented.
-4. Two competent engineers implementing the same acceptance criteria could reasonably produce
-   materially different, non-interchangeable designs.
-
-A sub-issue is **settled** only if every acceptance criterion already maps onto something
-`docs/architecture.md` fully specifies, with no remaining decision beyond implementation detail.
-A sharp retroactive check on the same rule: if merging the issue's PR requires editing §12 or §13,
-it was unsettled, and that should have been caught before implementation began, not after.
-
-For every **unsettled** sub-issue, an agent MUST, before writing implementation code: write a
-`spec.md` (what & why) and a `plan.md` (how, concretely) under `specs/<issue-number>-<slug>/`,
-subject `plan.md` to a rigorous, Socratic pre-implementation review — interviewing it relentlessly
-for gaps, unstated assumptions, and untested edge cases, in the spirit of "rubber duck debugging"
-applied before code exists rather than after — and write a `tasks.md` in the same folder to
-implement against. These files are committed to the repository and MUST NOT be deleted once
-written; they are the permanent, per-issue record of what was decided and why, scoped separately
-from `docs/architecture.md` so that document records only the current, locked state of the design
-rather than accumulating every issue's full reasoning trail. The PR implementing the issue MUST
-link the `specs/<issue-number>-<slug>/` folder, and `docs/architecture.md` MUST be updated with
-only a short pointer/summary of the resulting decision, not the full spec/plan content.
-**Settled** sub-issues MAY skip the spec/plan/rubber-duck sequence entirely and proceed straight
-to implementation against the issue and `docs/architecture.md` as before — applying this process
-to settled issues is deliberately out of scope, to avoid diluting its value through overuse. This
-`specs/` requirement applies going forward only; sub-issues merged before this principle was
-adopted (#4, #5) are not backfilled.
+Before claiming a sub-issue, an agent MUST classify it settled/unsettled using the rule in
+`.github/copilot-instructions.md` and record the result in the PR body. Unsettled sub-issues
+MUST produce permanent `specs/<issue-number>-<slug>/` artifacts (spec, plan, tasks) that
+pass `/speckit-analyze` with no unresolved CRITICAL or HIGH findings before implementation.
+Settled sub-issues skip this. Issues merged before v1.3.0 (#4, #5) are not backfilled.
 
 ## Scope & Technology Constraints
 
@@ -161,4 +123,4 @@ rejected or amend this constitution explicitly, not silently diverge from it. Us
 `.github/copilot-instructions.md` for routine, runtime development guidance that supports but does
 not override these principles.
 
-**Version**: 1.3.0 | **Ratified**: 2026-10-29 | **Last Amended**: 2026-10-29
+**Version**: 1.4.0 | **Ratified**: 2026-10-29 | **Last Amended**: 2026-10-30
