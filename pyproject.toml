@@ -11,12 +11,7 @@ select = ["E", "F", "I", "TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "random".msg = "Use src.simulator.rng (constitution V)."
-"numpy.random.default_rng".msg = "Use src.simulator.rng.get_rng/spawn_rngs (constitution V)."
-"numpy.random.seed".msg = "Global numpy RNG state is banned (constitution V)."
-"numpy.random.rand".msg = "Global numpy RNG state is banned (constitution V)."
-"numpy.random.randn".msg = "Global numpy RNG state is banned (constitution V)."
-"numpy.random.normal".msg = "Global numpy RNG state is banned (constitution V)."
-"numpy.random.uniform".msg = "Global numpy RNG state is banned (constitution V)."
+"numpy.random".msg = "Use src.simulator.rng (constitution V)."
 
 [tool.ruff.lint.per-file-ignores]
 "src/simulator/rng.py" = ["TID251"]
