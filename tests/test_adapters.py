@@ -44,6 +44,11 @@ def test_both_adapters_produce_valid_detections():
         detections = [m for m in messages if isinstance(m, Detection)]
         assert len(detections) == len(raw) > 0
         assert all(isinstance(m, Detection | Heartbeat) for m in messages)
+        for detection, source in zip(detections, raw, strict=True):
+            assert detection.lat == source.lat
+            assert detection.lon == source.lon
+            assert detection.alt_m == source.alt_m
+            assert detection.accuracy_m == config.accuracy_m
 
 
 def test_optional_fields_none_when_absent_from_raw():
