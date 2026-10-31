@@ -61,9 +61,7 @@ def test_drone_trajectory_position_at_outside_window_is_none():
 
 
 def test_bird_trajectory_reproducible_and_spans_full_duration():
-    bird = BirdTarget(
-        target_id="b1", start_lat=38.89, start_lon=-77.03, speed_mps=6, altitude_m=40
-    )
+    bird = BirdTarget(target_id="b1", start_lat=38.89, start_lon=-77.03, speed_mps=6, altitude_m=40)
     a = generate_bird_trajectory(get_rng(2), AREA, bird, duration_s=60)
     b = generate_bird_trajectory(get_rng(2), AREA, bird, duration_s=60)
     assert a.samples == b.samples

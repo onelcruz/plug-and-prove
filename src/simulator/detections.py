@@ -39,6 +39,23 @@ def _sensor_position(sensor: SensorConfig, scenario: ScenarioConfig) -> tuple[fl
     return lat, lon
 
 
+def expected_ticks(update_rate_hz: float, duration_s: float) -> list[float]:
+    """Return the full scheduled tick schedule for a given rate/duration.
+
+    Shared between ``generate_sensor_detections`` (which samples truth objects
+    at each tick) and the sensor adapter contract (issue #6), which must
+    recompute the identical schedule to know which ticks were "accounted for"
+    by a ``Detection`` vs. requiring a ``Heartbeat``.
+
+    Note: this can omit a final partial tick -- e.g. ``duration_s=0.3`` at
+    10 Hz yields ``[0.0, 0.1, 0.2]``, not ``[0.0, 0.1, 0.2, 0.3]`` -- this is
+    existing, unchanged behavior, not a bug to fix here.
+    """
+    dt_s = 1.0 / update_rate_hz
+    n_ticks = math.floor(duration_s / dt_s) + 1
+    return [min(i * dt_s, duration_s) for i in range(n_ticks)]
+
+
 def generate_sensor_detections(
     sensor: SensorConfig,
     scenario: ScenarioConfig,
@@ -55,12 +72,9 @@ def generate_sensor_detections(
     converted back to lat/lon.
     """
     sensor_lat, sensor_lon = _sensor_position(sensor, scenario)
-    dt_s = 1.0 / sensor.update_rate_hz
-    n_ticks = math.floor(scenario.duration_s / dt_s) + 1
 
     detections: list[RawDetection] = []
-    for i in range(n_ticks):
-        t_s = min(i * dt_s, scenario.duration_s)
+    for t_s in expected_ticks(sensor.update_rate_hz, scenario.duration_s):
         for obj in truth_objects:
             sample = obj.position_at(t_s)
             if sample is None:

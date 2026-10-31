@@ -1,7 +1,9 @@
-# Example sensor config (architecture.md §2). Extended in issues #6/#7 with
-# contract/conformance fields (e.g. max_clock_offset_s, heartbeat_timeout_s).
+# Example sensor config (architecture.md §2). Extended in issue #6 with
+# heartbeat_timeout_s (#7 may add further contract/conformance fields, e.g.
+# max_clock_offset_s).
 sensor_id: sensor-1
 accuracy_m: 15.0
 range_m: 5000
 update_rate_hz: 2.0
 dropout_probability: 0.02
+heartbeat_timeout_s: 1.0
