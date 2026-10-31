@@ -132,7 +132,7 @@ message for any scheduled tick with no `Detection` (see §3.4):
 ### 3.4 Update rate & heartbeat
 
 - Each sensor config declares an expected update-rate range (e.g. `min_hz`, `max_hz`) and a `heartbeat_timeout_s`.
-- An adapter must emit a `Detection` (or an explicit `Heartbeat` message, if no target is in view) for every scheduled tick, or the harness treats it as dead.
+- An adapter must account for every scheduled tick with a `Detection` or an explicit `Heartbeat` message. The harness treats it as dead if neither message arrives within `heartbeat_timeout_s`.
 
 **Resolved during implementation (issue #6):** a `Heartbeat` means *no `Detection` was produced
 for a nominal scheduled tick* (schedule-coverage) — it is **distinct from** detecting a
