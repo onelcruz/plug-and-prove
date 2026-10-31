@@ -5,7 +5,7 @@ the Spec Kit `/speckit-specify` → `/speckit-plan` → `/speckit-tasks` command
 implementation begins.
 
 See `.specify/memory/constitution.md` Principle VII and `.github/copilot-instructions.md`
-("Settled vs. unsettled" / "The specs/ workflow") for the rule that decides which issues get a
+("Before writing code" and "Unsettled issues only") for the rule that decides which issues get a
 folder here, and the exact steps.
 
 Convention: `specs/<issue-number>-<slug>/{spec.md,plan.md,tasks.md}`

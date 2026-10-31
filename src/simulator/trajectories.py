@@ -14,10 +14,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-import numpy as np
-
 from src.config.models import BirdTarget, ClutterConfig, DefendedArea, DroneTarget
 from src.simulator.geo import latlon_to_offset, offset_to_latlon
+from src.simulator.rng import Generator
 
 
 @dataclass(frozen=True)
@@ -72,7 +71,7 @@ class TruthObject:
 
 
 def generate_drone_trajectory(
-    rng: np.random.Generator,
+    rng: Generator,
     defended_area: DefendedArea,
     drone: DroneTarget,
     truth_dt_s: float = 0.5,
@@ -115,7 +114,7 @@ def generate_drone_trajectory(
 
 
 def generate_bird_trajectory(
-    rng: np.random.Generator,
+    rng: Generator,
     defended_area: DefendedArea,
     bird: BirdTarget,
     duration_s: float,
@@ -171,7 +170,7 @@ def generate_bird_trajectory(
 
 
 def generate_clutter_trajectories(
-    rng: np.random.Generator,
+    rng: Generator,
     defended_area: DefendedArea,
     clutter: ClutterConfig,
     duration_s: float,
