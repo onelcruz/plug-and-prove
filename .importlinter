@@ -1,12 +1,12 @@
 [importlinter]
 root_package = src
+exclude_type_checking_imports = True
 
 [importlinter:contract:no-ground-truth-leak]
 name = Downstream stages never see simulator ground truth
 type = forbidden
-   # src.adapters is excluded: adapters legitimately import src.simulator.detections, which
-   # imports trajectories. Revisit once #6 decides where RawDetection/Detection live.
 source_modules =
+    src.adapters
     src.conformance
     src.fusion
     src.classification
