@@ -9,6 +9,12 @@ duration_s: 180
 # same seed/config -- required by constitution Principle V (reproducibility).
 # Not wall-clock "now" at run start (#6).
 start_utc: 1735689600
+# System acceptance limits for the conformance harness (#7). They live on the
+# scenario, not on a sensor, so a sensor config cannot loosen the bar it is
+# tested against.
+max_clock_offset_s: 0.5
+min_alt_m: 0.0
+max_alt_m: 200.0
 defended_area:
   center_lat: 38.8895
   center_lon: -77.0353

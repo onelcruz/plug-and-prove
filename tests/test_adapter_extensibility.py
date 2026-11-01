@@ -19,7 +19,14 @@ from src.simulator.trajectories import TruthObject, TruthSample
 
 AREA = DefendedArea(center_lat=38.8895, center_lon=-77.0353, radius_m=2000)
 SCENARIO = ScenarioConfig(
-    name="t", seed=1, duration_s=2, start_utc=1700000000.0, defended_area=AREA
+    name="t",
+    seed=1,
+    duration_s=2,
+    start_utc=1700000000.0,
+    defended_area=AREA,
+    max_clock_offset_s=0.5,
+    min_alt_m=0.0,
+    max_alt_m=200.0,
 )
 
 # A throwaway "sensor 3" config -- no new src/adapters/ module, no changes
@@ -32,6 +39,9 @@ THROWAWAY_SENSOR = SensorConfig(
     update_rate_hz=3.0,
     dropout_probability=0.0,
     heartbeat_timeout_s=1.0,
+    min_hz=0.5,
+    max_hz=10.0,
+    max_accuracy_m=1000.0,
 )
 
 

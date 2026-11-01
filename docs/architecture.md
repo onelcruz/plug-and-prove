@@ -151,15 +151,17 @@ The harness runs as a **gate**, not a passive sidecar: a sensor's adapter must p
 
 Concrete checks (pytest-style, one pass/fail result each, aggregated into a Markdown/HTML report):
 
-1. **Schema** — every `Detection` validates against the pydantic model (required fields, correct types).
+1. **Schema** — every `Detection` validates strictly against the pydantic model (required fields, correct types), carries the submitted sensor's `sensor_id`, and has a `detection_id` unique within its run.
 2. **Units** — `alt_m` and `accuracy_m` fall within plausible configured bounds; no unit confusion (e.g. feet reported as meters).
-3. **Coordinate frame** — `lat`/`lon` fall within the configured defended-area bounding box (WGS84), catching gross frame/projection errors.
+3. **Coordinate frame** — every `Detection` lies within `range_m + 6 × accuracy_m` of the sensor's position (WGS84), catching gross frame/projection errors without rejecting correct detections outside the defended area.
 4. **Timestamp validity & clock offset** — `timestamp_utc` is not in the future beyond a small tolerance, is not stale, and its offset from simulator reference time is within `max_clock_offset_s`. **This is the check the demo deliberately fails** (sensor 3 ships with an injected timestamp offset bug).
 5. **Update rate** — measured inter-detection interval over a short sample window falls within the sensor's configured `[min_hz, max_hz]`.
 6. **Heartbeat / liveness** — a `Detection` or heartbeat signal arrives within `heartbeat_timeout_s`.
-7. **Dropped-message behavior** — the harness injects synthetic gaps and confirms the fusion engine coasts the affected track gracefully instead of crashing or spawning a duplicate track.
+7. **Dropped-message behavior** — the harness withholds a run of raw inputs and confirms the adapter does not crash, emits a `Heartbeat` at every withheld tick, and neither fabricates nor duplicates `Detection`s. Fusion coasting through such a gap is verified in #9.
 
 The harness completes in under 60 seconds (epic acceptance criterion) and produces a report listing each check as pass/fail with a one-line reason — mirroring the classifier's "explainable" philosophy.
+
+Design details for the implementation: `specs/007-conformance-harness/`.
 
 ## 5. Tracker / fusion engine (decision locked: hand-rolled, not Stone Soup)
 
@@ -285,29 +287,34 @@ with no target in view.~~ **Resolved in #6:** adapters emit an explicit `Heartbe
 the shared `expected_ticks()` helper) — see `specs/006-sensor-adapter-contract/plan.md` for the
 full design reasoning. This resolution opens five new, narrower questions:
 
-- `SensorConfig`'s single `update_rate_hz` field doesn't yet match §3.4's described `[min_hz,
-  max_hz]` range — left for #7 (the conformance harness, which owns the rate check) to resolve.
-- `Heartbeat` as designed in #6 proves schedule-coverage, not real liveness: it cannot
+- ~~`SensorConfig`'s single `update_rate_hz` field doesn't yet match §3.4's described `[min_hz,
+  max_hz]` range — left for #7 (the conformance harness, which owns the rate check) to resolve.~~
+- ~~`Heartbeat` as designed in #6 proves schedule-coverage, not real liveness: it cannot
   distinguish "sensor alive, nothing to report" from "sensor silently stopped reporting,"
   because the simulator (#5) has no failure mode for it to fail to notice. The conformance
   harness's fault-injection check (§4 check 7, "dropped-message behavior") will need a
   mechanism to give `translate()` (or a successor) real evidence of actual feed coverage, not
-  just the nominal schedule — open for #7 to resolve.
-- §4 check 5's "measured inter-detection interval... falls within `[min_hz, max_hz]`" no longer
+  just the nominal schedule — open for #7 to resolve.~~
+- ~~§4 check 5's "measured inter-detection interval... falls within `[min_hz, max_hz]`" no longer
   cleanly applies once a sensor can produce long `Heartbeat`-only stretches with zero
   `Detection`s. Measuring cadence across `Detection | Heartbeat` together does **not** work,
   since `Heartbeat` is generated directly from the configured rate and would make the check
-  unfalsifiable — left open for #7 to actually solve, with that approach explicitly ruled out.
-- Whether `raw_payload`'s `t_s` field (or `Heartbeat.t_s`) becomes a load-bearing contract the
+  unfalsifiable — left open for #7 to actually solve, with that approach explicitly ruled out.~~
+- ~~Whether `raw_payload`'s `t_s` field (or `Heartbeat.t_s`) becomes a load-bearing contract the
   harness (#7) relies on for its clock-offset check (§4 check 4), since `Detection` has no
   dedicated simulator-time field today and decoding `t_s` back out of `detection_id` would make
   the ID format an undocumented, hidden contract. #6 does not resolve this; it's #7/#8's design
-  decision.
+  decision.~~
 - No mechanism maps a `SensorConfig`/`sensor_id` entry to the adapter function that should
   process it. This is distinct from §10's existing "Register adapter" sequence step (submitting
   an adapter to the harness gate for conformance checking) — the gap here is specifically the
   `sensor_id` → adapter-function lookup, not the harness-gate step, which already exists. Left
   for #13 (orchestration) to design.
+
+**Resolved in #7** (the four struck bullets in the list above) — see `specs/007-conformance-harness/research.md`
+(R2, R3, R5, R7): `min_hz`/`max_hz` live on `SensorConfig`; real gap evidence comes from
+harness-withheld probe ticks; check 5 measures `Detection`-only cadence on a probe stream;
+`raw_payload["t_s"]` stays debugging-only because the harness supplies and knows each input's time.
 
 ~~Whether `runs/` (test record output) is committed to the repo or gitignored.~~ **Resolved in
 #4:** committed, with a `.gitkeep` placeholder — see §2.

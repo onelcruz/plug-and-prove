@@ -19,7 +19,14 @@ from src.simulator.trajectories import TruthObject, TruthSample
 
 AREA = DefendedArea(center_lat=38.8895, center_lon=-77.0353, radius_m=2000)
 SCENARIO = ScenarioConfig(
-    name="t", seed=1, duration_s=2, start_utc=1700000000.0, defended_area=AREA
+    name="t",
+    seed=1,
+    duration_s=2,
+    start_utc=1700000000.0,
+    defended_area=AREA,
+    max_clock_offset_s=0.5,
+    min_alt_m=0.0,
+    max_alt_m=200.0,
 )
 
 
@@ -79,6 +86,9 @@ def test_detection_id_unique_across_simultaneous_same_tick_detections():
         update_rate_hz=1,
         dropout_probability=0.0,
         heartbeat_timeout_s=5.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     obj_a = TruthObject(
         object_id="a",
@@ -110,6 +120,9 @@ def test_detection_id_uses_schedule_tick_index_not_detection_order():
         update_rate_hz=1,
         dropout_probability=0.0,
         heartbeat_timeout_s=5.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     # Object only appears at t_s=2.0, so ticks 0 and 1 (of a 2s/1Hz schedule:
     # 0,1,2) must be Heartbeat, and the single Detection must be "multi:2:0".
@@ -202,6 +215,9 @@ def test_every_scheduled_tick_yields_exactly_one_message():
         update_rate_hz=1,
         dropout_probability=0.0,
         heartbeat_timeout_s=5.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     # Truth object only exists for t_s in [0.0, 1.0], so tick 2.0 (of 0,1,2) has
     # no target in range and must yield a Heartbeat, not a missing entry.
@@ -228,6 +244,9 @@ def test_heartbeat_emitted_for_every_tick_when_no_targets_in_view():
         update_rate_hz=1,
         dropout_probability=0.0,
         heartbeat_timeout_s=5.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     raw = generate_sensor_detections(sensor, SCENARIO, [], get_rng(1))
     assert raw == []
@@ -245,6 +264,9 @@ def test_heartbeat_shares_detection_time_base():
         update_rate_hz=1,
         dropout_probability=0.0,
         heartbeat_timeout_s=5.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     messages = translate([], sensor, SCENARIO)
     for m in messages:
