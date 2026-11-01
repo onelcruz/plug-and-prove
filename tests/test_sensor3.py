@@ -244,3 +244,17 @@ def test_sensor3_sees_the_drone():
         and distance_m(raw.lat, raw.lon, p.lat, p.lon) <= 3 * SENSOR_3.accuracy_m
     ]
     assert near_a_drone, "sensor 3 produced no drone detections"
+
+
+@pytest.mark.parametrize(
+    "start_utc",
+    [
+        1_073_741_823.9999999,  # just below 2**30: adding 18 s crosses a float64 binade
+        2_147_483_630.0,  # 18 s before 2**31 (the year-2038 boundary)
+    ],
+)
+def test_fixed_adapter_is_exact_at_float_binade_boundaries(start_utc):
+    scenario = SCENARIO.model_copy(update={"start_utc": start_utc, "max_clock_offset_s": 1e-8})
+    raw = _sensor3_raw()
+    assert sensor3.translate(raw, SENSOR_3, scenario) == base_translate(raw, SENSOR_3, scenario)
+    assert run_harness(sensor3.translate, SENSOR_3, scenario, raw).result.admitted

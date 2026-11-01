@@ -37,7 +37,8 @@ Rules 1 and 2 do not fire. No §13 question is resolved, and no §12 row is touc
   failing; fixed → ADMITTED; re-submitting fixed after buggy flips the gate verdict.
 - Q: Offset size and sign? → A: Fixed +18.0 s ahead, modelling a sensor that reports GPS time
   labelled as UTC (GPS − UTC = 18 s). Constant `GPS_UTC_OFFSET_S` with a comment citing that;
-  the fixed adapter subtracts it. Guard test: fails if the offset is ≤ the example scenario's
+  the fixed adapter subtracts it (amended after PR #30 review: the fixed adapter removes the
+  offset by reporting UTC directly, not by float subtraction; see FR-008). Guard test: fails if the offset is ≤ the example scenario's
   `max_clock_offset_s`.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -170,12 +171,14 @@ gate.
 - **FR-008**: The injected offset MUST be a fixed +18.0 s (ahead), held in a named constant
   `GPS_UTC_OFFSET_S` whose comment states that it models a sensor reporting GPS time labelled as
   UTC (GPS − UTC = 18 s). The buggy callable models the sensor's raw clock (+18 s on every
-  message); the fixed callable subtracts `GPS_UTC_OFFSET_S` to recover UTC. A guard test MUST fail
+  message); the fixed callable removes `GPS_UTC_OFFSET_S` and reports UTC. A guard test MUST fail
   if `GPS_UTC_OFFSET_S` is ≤ the example scenario's `max_clock_offset_s` (FR-004).
   The GPS clock is modelled inside sensor 3's adapter, not in the simulator: the simulated raw
-  stream stays truth-aligned (FR-009, FR-010), the adapter derives the sensor's clock reading
-  as UTC + `GPS_UTC_OFFSET_S`, the buggy callable labels that reading as UTC, and the fixed
-  callable subtracts `GPS_UTC_OFFSET_S` before labelling it.
+  stream stays truth-aligned (FR-009, FR-010), the buggy callable labels the sensor's clock
+  reading (UTC + `GPS_UTC_OFFSET_S`) as UTC, and the fixed callable reports UTC directly. It
+  MUST NOT recover UTC as `(utc + GPS_UTC_OFFSET_S) − GPS_UTC_OFFSET_S`, because that round trip
+  is not exact where adding 18 s crosses a float64 binade, which would break FR-006 (PR #30
+  review finding).
 - **FR-009**: Adding sensor 3 MUST NOT change the conformance harness, the `SensorAdapter`
   contract, the `Detection`/`Heartbeat` schemas, the simulator, or any `ScenarioConfig` limit
   (Principle IV; §3's "one adapter module + one config entry" extensibility claim).

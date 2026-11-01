@@ -11,8 +11,8 @@ plus `src/adapters/sensor3.py`. The module exports two adapters:
 
 - `translate_with_clock_bug`: the shared `base.translate` output, re-stamped with the sensor's
   GPS clock reading (UTC + `GPS_UTC_OFFSET_S` = 18.0 s), labelled as UTC.
-- `translate`: the same reading with `GPS_UTC_OFFSET_S` subtracted, so its output is identical
-  to `base.translate`.
+- `translate`: reports UTC (the offset removed), so its output is identical to
+  `base.translate`.
 
 The demo "toggle" is which callable is submitted to the #7 `ConformanceGate`; wiring that into
 the run configuration is #13's job (noted on #13). Tests prove the fail → fix → pass beat on one
@@ -85,10 +85,9 @@ value (FR-009). The fix is adapter code, never a limit change (user instruction)
   `heartbeat_timeout_s` 2.0, `dropout_probability` 0.03, positioned at 38.8960, −77.0280 (about
   0.9 km NE of the defended-area centre). The drone is within range in 606 of 801 truth samples,
   and the prototype run produced 174 drone detections. With `base.translate` it passes 7/7.
-- **R4 Exact fix**: At `start_utc` ≈ 1.7e9 the float64 ulp is 2⁻²² s, and 18 s is a whole
-  number of ulps, so `(start_utc + t_s + 18) − 18` is exact. The fixed output equals
-  `base.translate`'s exactly (FR-006). Probed on sensor 3's 1 Hz stream and sensor 2's 5 Hz
-  stream.
+- **R4 Exact fix**: The fixed output equals `base.translate`'s exactly (FR-006). It takes UTC
+  directly, because `(utc + 18) − 18` is not exact where adding 18 s crosses a float64 binade
+  (found by the PR #30 review; regression test at 1073741823.9999999).
 - **R5 Guard test**: The FR-004 guard compares constants (`GPS_UTC_OFFSET_S >
   SCENARIO.max_clock_offset_s`), not harness outcomes. Probe found: at `start_utc` ≈ 1.7e9 an
   offset of 0.5000001 s still PASSES check 4 because it is below one timestamp ulp
@@ -161,7 +160,7 @@ unaffected).
   - The first buggy timestamp for `t_s` = 0 is 1,735,689,618.0, i.e. 2025-01-01T00:00:18Z (from
     an epoch converter, given `start_utc` 1,735,689,600 = 2025-01-01T00:00:00Z).
 - **Round-trip test**: `translate(raw)` equals `base.translate(raw)` exactly for sensor 3's real
-  stream, because subtracting `GPS_UTC_OFFSET_S` inverts the GPS clock reading.
+  stream and at float64-binade-boundary epochs.
 
 ## Architecture doc update (in the implementing PR)
 

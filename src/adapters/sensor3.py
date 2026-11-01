@@ -7,8 +7,8 @@ callables over the shared ``base.translate``:
 - ``translate_with_clock_bug`` labels the sensor's GPS clock reading as UTC, so
   every message is 18 s ahead and the conformance harness blocks the sensor on
   check 4 (clock offset) alone.
-- ``translate`` converts the GPS clock reading to UTC, so its output equals
-  ``base.translate``'s and the sensor passes all 7 checks.
+- ``translate`` reports UTC, so its output equals ``base.translate``'s and the
+  sensor passes all 7 checks.
 
 The demo's "toggle" is which callable is submitted to the gate; wiring that
 choice into a run is #13's job. The fix is adapter code: no scenario limit
@@ -61,11 +61,13 @@ def translate(
     sensor: SensorConfig,
     scenario: ScenarioConfig,
 ) -> list[Detection | Heartbeat]:
-    """The fix: convert the sensor's GPS clock reading to UTC by subtracting the 18 s offset."""
-    return [
-        message.model_copy(update={"timestamp_utc": message.timestamp_utc - GPS_UTC_OFFSET_S})
-        for message in _gps_clock(raw_detections, sensor, scenario)
-    ]
+    """The fix: report UTC, i.e. remove the 18 s that the bug adds (GPS - UTC).
+
+    UTC is taken straight from the shared translation rather than recovered as
+    ``(utc + GPS_UTC_OFFSET_S) - GPS_UTC_OFFSET_S``: that round trip is not exact
+    where adding 18 s crosses a float64 binade (e.g. just below 2**30 or 2**31 s).
+    """
+    return base.translate(raw_detections, sensor, scenario)
 
 
 __all__ = ["GPS_UTC_OFFSET_S", "translate", "translate_with_clock_bug", "sensor_config"]

@@ -119,7 +119,7 @@ example scenario and sensor 3's real stream gives BLOCKED, failing `[4]`, reason
 
 ## Phase 4: User Story 2 — Removing the bug passes all 7 checks (P1)
 
-**Goal**: `translate` subtracts `GPS_UTC_OFFSET_S` and is ADMITTED 7/7 under the unmodified
+**Goal**: `translate` removes the offset (reports UTC) and is ADMITTED 7/7 under the unmodified
 scenario.
 
 **Independent Test**: Submitting `translate` to a fresh gate gives ADMITTED, 7/7 PASS, and
@@ -130,8 +130,10 @@ scenario.
 
 - [x] T009 [US2] In `tests/test_sensor3.py`, add a round-trip test: `sensor3.translate(raw,
   ...) == base.translate(raw, ...)` exactly (list `==`) on sensor 3's real stream (FR-006,
-  research.md R4). Also assert that `sensor3.translate is not base.translate`, so the
-  "subtract" path is actually exercised (clarification Q2).
+  research.md R4). Also assert that `sensor3.translate is not base.translate`, so the pair of
+  callables stays distinct. Added after the PR #30 review: a parametrized regression test at
+  float64-binade-boundary epochs (`start_utc` 1073741823.9999999 and 2147483630.0, with
+  `max_clock_offset_s` 1e-8).
 - [x] T010 [US2] In `tests/test_sensor3.py`, add a gate test with a fresh gate:
   - Submit `translate`: the result is admitted, with all 7 checks passing.
   - `admitted_detections("sensor-3")` has length `len(raw)`, and its sorted `timestamp_utc`
@@ -141,8 +143,9 @@ scenario.
 ### Implementation for User Story 2
 
 - [x] T011 [US2] In `src/adapters/sensor3.py`, add `translate(raw, sensor, scenario)`:
-  `_gps_clock(...)` with each `timestamp_utc − GPS_UTC_OFFSET_S`. Its docstring says it
-  converts the sensor's GPS clock reading to UTC (the fix). Run T009–T010 green.
+  returns `base.translate(...)` directly (amended after the PR #30 review: the first version
+  subtracted `GPS_UTC_OFFSET_S` from the GPS reading, which is inexact at float64 binade
+  boundaries). Its docstring says it reports UTC (the fix). Run T009–T010 green.
 
 **Checkpoint**: Both halves of the beat work separately.
 

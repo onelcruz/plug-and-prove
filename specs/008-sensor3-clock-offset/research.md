@@ -9,16 +9,18 @@ merged #7 harness (`main` at `f6ede37`).
 - **Decision**: Inside `src/adapters/sensor3.py`. A private helper re-stamps `base.translate`'s
   output with the sensor's clock reading, `timestamp_utc + GPS_UTC_OFFSET_S`.
   - `translate_with_clock_bug` returns that reading labelled as UTC.
-  - `translate` subtracts `GPS_UTC_OFFSET_S` from it.
+  - `translate` reports UTC directly, i.e. `base.translate`'s output (amended after the PR #30
+    review; see R4).
 - **Rationale**: Check 4 measures each `Detection` against `start_utc + raw.t_s`. If the
   simulator produced GPS-shifted raw `t_s`, the harness's reference would shift too, so the bug
   would be invisible. Shifting raw `t_s` would also change the simulator (FR-009). The
-  clarification requires the fixed adapter to subtract the constant, and modelling the reading
-  in the adapter is the only place that subtraction is meaningful.
+  fixed adapter must remove the 18 s, and the bug (the GPS reading labelled as UTC) is only
+  meaningful if it is modelled in the adapter.
 - **Alternatives considered**: An offset field in `SensorConfig`/YAML (rejected in clarification
   Q1). A GPS-time raw stream from the simulator (invisible to check 4, and forbidden by FR-009).
-  A `translate` that simply re-exports `base.translate` (rejected because it does not subtract,
-  contrary to the clarification).
+  A fixed `translate` that is literally `base.translate` (re-exported, as in `sensor1.py`):
+  functionally the same, but a separate function keeps the buggy/fixed pair readable and
+  documents the fix.
 
 ## R2: Which fields the bug touches
 
@@ -67,10 +69,12 @@ merged #7 harness (`main` at `f6ede37`).
 
 - **Decision**: The fixed `translate` must equal `base.translate` exactly (`==` on the message
   lists), not merely within tolerance.
-- **Rationale**: Probe: `(m.timestamp_utc + 18.0) - 18.0 == m.timestamp_utc` holds for every
-  message of sensor 3's real stream (1 Hz) and of sensor 2's (5 Hz). `start_utc` + `t_s` ≈
-  1.7e9 has an ulp of 2⁻²² s (~2.4e-7), and 18 = 18 × 2²² ulps, so adding and subtracting it is
-  exact for every value representable at that magnitude.
+- **Rationale**: The first design recovered UTC as `(utc + 18.0) − 18.0`. A probe showed this
+  exact for every message of sensor 3's real stream (1 Hz) and of sensor 2's (5 Hz) at
+  `start_utc` ≈ 1.7e9, but the Copilot review of PR #30 showed it is **not** exact where adding
+  18 s crosses a float64 binade (e.g. `start_utc` = 1073741823.9999999, just below 2³⁰, gives
+  1073741824.0). Resolved: the fixed `translate` returns `base.translate`'s output directly, so
+  exactness holds for every epoch. A regression test covers the boundary epochs.
 - **Alternatives considered**: A tolerance-based equality. Rejected because it would hide a
   wrong subtraction smaller than the tolerance.
 

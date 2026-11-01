@@ -32,7 +32,7 @@ There is no offset field (clarification Q1).
 |---|---|---|
 | `base.translate` (reference) | `start_utc + t_s` | reference |
 | `translate_with_clock_bug` | `start_utc + t_s + GPS_UTC_OFFSET_S` | identical to the reference |
-| `translate` | `(start_utc + t_s + GPS_UTC_OFFSET_S) − GPS_UTC_OFFSET_S` = reference (exact; research.md R4) | identical to the reference |
+| `translate` | `start_utc + t_s` = reference (taken directly, no float round trip; research.md R4) | identical to the reference |
 
 ## Gate state transitions for `sensor-3` (existing `ConformanceGate`)
 
