@@ -229,7 +229,7 @@ admits sensors 1 and 2 in under 60 s.
       `feature/7-conformance-harness` → `main` with the PR-body requirements listed in plan.md (first
       line classification, analyze table, Architecture doc section noting the §4 check 3/7 changes,
       import probes (re-run from T003), check outputs). Confirm CI is green.
-- [ ] T033 Request the independent review: `gh pr edit <N> --add-reviewer "@copilot"`. Address or
+- [x] T033 Request the independent review: `gh pr edit <N> --add-reviewer "@copilot"`. Address or
       dismiss (with reasoning) every finding, re-run T031, and record the outcome in the PR body.
 
 ---
@@ -254,7 +254,7 @@ Each fixture task is written first and MUST fail (admitted / passes) on the pre-
 - [x] T041 Re-run T031 (ruff, lint-imports, pytest, 3 import probes); the T034 fixtures are now BLOCKED
       by exactly the intended check; known-good adapters still admitted.
 - [x] T042 Re-run `/speckit-analyze`; fix CRITICAL/HIGH; paste table in the PR body.
-- [ ] T043 Reply on all 7 Copilot threads, then resolve them; update the PR body.
+- [x] T043 Reply on all 7 Copilot threads, then resolve them; update the PR body.
 
 ---
 
