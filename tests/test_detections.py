@@ -5,7 +5,14 @@ from src.simulator.trajectories import TruthObject, TruthSample
 
 AREA = DefendedArea(center_lat=0.0, center_lon=0.0, radius_m=2000)
 SCENARIO = ScenarioConfig(
-    name="t", seed=1, duration_s=10, start_utc=1700000000.0, defended_area=AREA
+    name="t",
+    seed=1,
+    duration_s=10,
+    start_utc=1700000000.0,
+    defended_area=AREA,
+    max_clock_offset_s=0.5,
+    min_alt_m=0.0,
+    max_alt_m=200.0,
 )
 
 
@@ -28,6 +35,9 @@ def test_reproducible_detections():
         update_rate_hz=2,
         dropout_probability=0.1,
         heartbeat_timeout_s=10.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     obj = _stationary_object(0.001, 0.001)
     a = generate_sensor_detections(sensor, SCENARIO, [obj], get_rng(5))
@@ -45,6 +55,9 @@ def test_range_limit_cutoff():
         update_rate_hz=1,
         dropout_probability=0.0,
         heartbeat_timeout_s=10.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     far_sensor = SensorConfig(
         sensor_id="far",
@@ -53,6 +66,9 @@ def test_range_limit_cutoff():
         update_rate_hz=1,
         dropout_probability=0.0,
         heartbeat_timeout_s=10.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     in_range = generate_sensor_detections(near_sensor, SCENARIO, [obj], get_rng(1))
     out_of_range = generate_sensor_detections(far_sensor, SCENARIO, [obj], get_rng(1))
@@ -69,6 +85,9 @@ def test_dropout_always_drops_at_probability_one():
         update_rate_hz=5,
         dropout_probability=1.0,
         heartbeat_timeout_s=10.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     detections = generate_sensor_detections(sensor, SCENARIO, [obj], get_rng(1))
     assert detections == []
@@ -87,6 +106,9 @@ def test_tick_count_exact_for_non_binary_exact_rate():
         update_rate_hz=7,
         dropout_probability=0.0,
         heartbeat_timeout_s=10.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     detections = generate_sensor_detections(sensor, SCENARIO, [obj], get_rng(1))
     # floor(10 / (1/7)) + 1 = floor(70) + 1 = 71 ticks, inclusive of t=0 and t=10.
@@ -103,6 +125,9 @@ def test_dropout_never_drops_at_probability_zero():
         update_rate_hz=2,
         dropout_probability=0.0,
         heartbeat_timeout_s=10.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     detections = generate_sensor_detections(sensor, SCENARIO, [obj], get_rng(1))
     # update_rate_hz=2 over duration_s=10 -> ticks at 0, 0.5, ..., 10 inclusive = 21 ticks.
@@ -118,6 +143,9 @@ def test_accuracy_affects_noise_magnitude():
         update_rate_hz=1,
         dropout_probability=0.0,
         heartbeat_timeout_s=10.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     loose_sensor = SensorConfig(
         sensor_id="loose",
@@ -126,6 +154,9 @@ def test_accuracy_affects_noise_magnitude():
         update_rate_hz=1,
         dropout_probability=0.0,
         heartbeat_timeout_s=10.0,
+        min_hz=0.5,
+        max_hz=10.0,
+        max_accuracy_m=1000.0,
     )
     tight = generate_sensor_detections(tight_sensor, SCENARIO, [obj], get_rng(9))
     loose = generate_sensor_detections(loose_sensor, SCENARIO, [obj], get_rng(9))

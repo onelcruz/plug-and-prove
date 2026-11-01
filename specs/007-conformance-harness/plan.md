@@ -85,6 +85,13 @@ networked sensor, whose raw feed the harness does not generate, would need a dif
 (for example a trusted time source or a known-time calibration target). Out of scope for this
 demo (§3.3, §12 row 2). Recorded per the user's instruction during `/speckit-clarify` (Q2).
 
+### Accepted limitation (update-rate check)
+
+Check 5 verifies that the adapter preserves cadence: the harness generates probe input at the
+sensor's `update_rate_hz`, so the measured rate reflects the adapter's timestamping, not the sensor.
+It cannot detect a real sensor reporting at the wrong rate. Recorded per the user's instruction at
+implementation start.
+
 ### Accepted risk (sensor-declared limits)
 
 `min_hz`, `max_hz`, and `max_accuracy_m` are sensor-declared by design: they describe the sensor's

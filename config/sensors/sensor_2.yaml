@@ -10,3 +10,6 @@ dropout_probability: 0.05
 heartbeat_timeout_s: 0.5
 lat: 38.8910
 lon: -77.0370
+min_hz: 4.0
+max_hz: 6.0
+max_accuracy_m: 50.0
