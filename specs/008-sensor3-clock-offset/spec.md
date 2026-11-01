@@ -187,8 +187,9 @@ gate.
 - **Sensor-3 configuration**: a sensor configuration like sensors 1 and 2's (id, accuracy,
   range, rate band, heartbeat timeout, accuracy limit, position), validated by the existing
   rules.
-- **Sensor-3 adapter**: a `SensorAdapter` that reuses the shared translation and, while the bug
-  is present, shifts every message's timestamp by the injected offset.
+- **Sensor-3 adapter**: a module exporting two `SensorAdapter` callables that reuse the shared
+  translation: `translate_with_clock_bug`, which shifts every message's timestamp by the
+  injected offset, and `translate`, which does not.
 - **Clock-offset bug toggle**: the choice between the two exported callables (FR-005). The
   offset is the constant `GPS_UTC_OFFSET_S` (FR-008).
 

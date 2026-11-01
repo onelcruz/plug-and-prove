@@ -1,0 +1,20 @@
+# Sensor 3 config (architecture.md §2, §10). A third, distinct SensorConfig --
+# a short-range, precise, slow sensor, unlike sensor-1 (2 Hz, 15 m, 5 km) and
+# sensor-2 (5 Hz, 8 m, 3.5 km). Placed ~0.9 km NE of the defended-area center,
+# on the drone's inbound bearing, so it contributes to the live picture once
+# admitted.
+#
+# Deliberately has no clock-offset field: the demo's timestamp bug lives in
+# src/adapters/sensor3.py, and the fix is a change to adapter code, not config
+# (issue #8, specs/008-sensor3-clock-offset clarification Q1).
+sensor_id: sensor-3
+accuracy_m: 5.0
+range_m: 2500
+update_rate_hz: 1.0
+dropout_probability: 0.03
+heartbeat_timeout_s: 2.0
+lat: 38.8960
+lon: -77.0280
+min_hz: 0.5
+max_hz: 1.5
+max_accuracy_m: 50.0

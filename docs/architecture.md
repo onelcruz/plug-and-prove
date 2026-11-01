@@ -34,7 +34,7 @@ Suggested package layout (for scoping future sub-issues, not a requirement):
 plug-and-prove/
 ├── config/
 │   ├── scenarios/        # scenario YAML (targets, birds, clutter, seed)
-│   └── sensors/           # per-sensor YAML (accuracy, rate, dropout, offsets)
+│   └── sensors/           # per-sensor YAML (accuracy, rate, dropout)
 ├── src/
 │   ├── simulator/            # includes rng.py, the shared seeded-RNG utility
 │   ├── adapters/           # one module per sensor adapter
@@ -237,6 +237,8 @@ sequenceDiagram
     Fusion->>Rec2: Track/classification metrics
     Rec2->>Rec2: Write timestamped test record file
 ```
+
+Sensor 3's fail → fix beat is implemented in #8: see `specs/008-sensor3-clock-offset/`.
 
 ## 11. Component view
 
