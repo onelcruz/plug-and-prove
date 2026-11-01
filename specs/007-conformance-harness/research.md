@@ -106,17 +106,22 @@ Decisions below resolve every open item from spec.md (Clarifications, Session 20
   - Check 5: `rate = (n − 1) / (t_last − t_first)` over full-probe `Detection` timestamps; needs n ≥ 2.
   - Check 6: sort full-probe messages by `timestamp_utc`; FAIL if any consecutive gap >
     `heartbeat_timeout_s`, or if `(scheduled_span − output_span) > heartbeat_timeout_s`.
-  - Check 7: counts only (R1).
-- **Rationale**: A constant offset leaves counts, intervals, and spans unchanged, so the
+  - Check 7: counts (R1), plus Heartbeat coverage of the withheld ticks after removing the constant
+    offset estimated from the Detections; matched in sorted order within half a tick period
+    (FR-009b, PR #28 review F3).
+  - Check 5 compares `[min_hz, max_hz]` allowing for one `math.ulp` of timestamp resolution (FR-006).
+- **Rationale**: A constant offset leaves counts, intervals, and spans unchanged (and check 7 removes it before
+  comparing to the schedule), so the
   clock-offset fixture (and #8's sensor 3) fails only check 4 (SC-002).
 
 ## R8 — Schema check
 
 - **Decision**: For every message from every run: if it is a `Detection` or `Heartbeat` instance,
-  re-validate with `type(m).model_validate(m.model_dump())` (catches objects built with
+  re-validate strictly with `type(m).model_validate(m.model_dump(), strict=True)` (catches objects built with
   `model_construct`/`model_copy(update=...)`, which skip validation); any other type FAILS. Also FAIL
   if no `Detection` was produced across all runs ("no Detections to evaluate" — vacuous truth is not
-  evidence). Checks 2–7 use the instances as emitted (no re-validation), so a schema-only fault does
+  evidence). Also FAIL on a `sensor_id` other than the submitted sensor's and on a `detection_id`
+  repeated within one run (FR-002a/002b). Checks 2–7 use the instances as emitted (no re-validation), so a schema-only fault does
   not cascade.
 
 ## R9 — Failure isolation

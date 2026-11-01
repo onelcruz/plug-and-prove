@@ -227,7 +227,9 @@ admitted/blocked verdict.
   the corresponding sorted withheld tick. One `Heartbeat` replayed for every withheld tick FAILs
   (PR #28 review, F3). The offset estimate keeps check 7 offset-invariant (FR-009a).
 - **FR-009a**: Checks 5, 6, and 7 MUST be invariant to a constant `timestamp_utc` offset: they use
-  counts, intervals between messages, and spans — never absolute times compared to the schedule.
+  counts, intervals between messages, and spans. The only comparison to the schedule is check 7's
+  Heartbeat coverage (FR-009b), which first removes the constant offset estimated from the
+  `Detection`s.
   Clock alignment is exclusively check 4's responsibility, so an offset-only fault (the check-4
   fixture, and #8's sensor 3) fails check 4 alone (SC-002).
 - **FR-010**: An aggregator MUST run all 7 checks against one adapter + sensor config + scenario

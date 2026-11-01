@@ -68,14 +68,14 @@ itself is #8.
 
 | Item | Decision | Ref |
 |---|---|---|
-| Check 7 | Adapter-side, count-based response to harness-withheld ticks; fusion coasting moves to #9 | R1, spec Q1 |
+| Check 7 | Adapter-side response to harness-withheld ticks (counts plus offset-normalised Heartbeat coverage); fusion coasting moves to #9 | R1, spec Q1 |
 | Check 4 reference | `start_utc + raw.t_s` of inputs the harness itself supplied, compared sorted | R2, spec Q2 |
 | Inputs | Real stream (checks 1–4) plus full and gap probe streams (checks 1–7) | R3, spec Q3 |
 | Check 3 bound | `range_m + 6 × accuracy_m` from sensor position | R4, spec Q4 |
 | Limits | Sensor: `min_hz`, `max_hz`, `max_accuracy_m`. Scenario: `max_clock_offset_s`, `min_alt_m`, `max_alt_m` | R5, spec Q5 |
 | Import boundary | Prerequisite #26 / PR #27 (`TYPE_CHECKING` guard, `exclude_type_checking_imports`, re-add `src.adapters`) | R6 |
-| Offset invariance | Checks 5–7 use counts, intervals, and spans only | R7, FR-009a |
-| Schema check | Re-validate instances (catches `model_construct`/`model_copy` bypass); non-models FAIL | R8 |
+| Offset invariance | Checks 5–7 use counts, intervals, and spans; check 7 removes the constant offset before checking Heartbeat coverage | R7, FR-009a/009b |
+| Schema check | Strictly re-validate instances (catches `model_construct`/`model_copy` bypass and coercion); non-models, foreign `sensor_id` and per-run duplicate ids FAIL | R8 |
 | Isolation | Adapter and check exceptions → FAIL for the dependent checks only | R9 |
 
 ### Accepted limitation (clock-offset reference)
@@ -91,6 +91,12 @@ Check 5 verifies that the adapter preserves cadence: the harness generates probe
 sensor's `update_rate_hz`, so the measured rate reflects the adapter's timestamping, not the sensor.
 It cannot detect a real sensor reporting at the wrong rate. Recorded per the user's instruction at
 implementation start.
+
+### Accepted limitation (partial clock offset)
+
+Check 7 estimates the constant offset from the `Detection`s. An adapter that shifts its Detections
+but not its Heartbeats (a non-constant offset) therefore fails check 7 as well as check 4. SC-002's
+"fails check 4 alone" holds for a constant offset on every message, which is the fault modelled.
 
 ### Accepted risk (sensor-declared limits)
 

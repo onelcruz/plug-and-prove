@@ -103,7 +103,7 @@ evidence and fails its bad evidence with a fault-specific, single-line reason.
 All tasks edit the same two files, so they run sequentially. Each task implements one check per
 contracts/harness-api.md and adds its pass and fail fixtures to `tests/test_conformance_checks.py`.
 
-- [x] T016 [US3] `check_schema(messages)`: re-validate `Detection`/`Heartbeat` instances via
+- [x] T016 [US3] (superseded by T036: now `check_schema(runs, sensor_id)`) `check_schema(messages)`: re-validate `Detection`/`Heartbeat` instances via
       `type(m).model_validate(m.model_dump())`; any other type FAILS; zero `Detection`s FAILS with
       "no Detections to evaluate". The FAIL reason names the first offending message (its index in
       the evaluated stream and its `detection_id`, if any) and the first failing field. Fail
@@ -136,7 +136,7 @@ contracts/harness-api.md and adds its pass and fail fixtures to `tests/test_conf
       `(scheduled_span − output_span) > heartbeat_timeout_s`. Fail fixtures: a silent mid-stream run,
       and a stream that stops early. An empty message list FAILS with "no messages to evaluate". Gap
       exactly equal to the timeout PASSES; a constant offset leaves the result unchanged (FR-007, R7).
-- [x] T022 [US3] `check_dropped_messages(gap_probe_messages, supplied_count, withheld_count)`: FAIL if
+- [x] T022 [US3] (superseded by T038: new signature, Heartbeat coverage) `check_dropped_messages(gap_probe_messages, supplied_count, withheld_count)`: FAIL if
       the `Detection` count ≠ `supplied_count`, the `Heartbeat` count ≠ `withheld_count`, or any
       `detection_id` is duplicated. Fail fixtures: a skipped Heartbeat, a fabricated Detection, a
       duplicate ID (FR-009, R1).
@@ -253,7 +253,7 @@ Each fixture task is written first and MUST fail (admitted / passes) on the pre-
 - [x] T040 `probes.probe_position`: in-bounds direction fallback (FR-008b).
 - [x] T041 Re-run T031 (ruff, lint-imports, pytest, 3 import probes); the T034 fixtures are now BLOCKED
       by exactly the intended check; known-good adapters still admitted.
-- [ ] T042 Re-run `/speckit-analyze`; fix CRITICAL/HIGH; paste table in the PR body.
+- [x] T042 Re-run `/speckit-analyze`; fix CRITICAL/HIGH; paste table in the PR body.
 - [ ] T043 Reply on all 7 Copilot threads, then resolve them; update the PR body.
 
 ---

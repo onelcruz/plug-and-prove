@@ -151,13 +151,13 @@ The harness runs as a **gate**, not a passive sidecar: a sensor's adapter must p
 
 Concrete checks (pytest-style, one pass/fail result each, aggregated into a Markdown/HTML report):
 
-1. **Schema** — every `Detection` validates against the pydantic model (required fields, correct types).
+1. **Schema** — every `Detection` validates strictly against the pydantic model (required fields, correct types), carries the submitted sensor's `sensor_id`, and has a `detection_id` unique within its run.
 2. **Units** — `alt_m` and `accuracy_m` fall within plausible configured bounds; no unit confusion (e.g. feet reported as meters).
 3. **Coordinate frame** — every `Detection` lies within `range_m + 6 × accuracy_m` of the sensor's position (WGS84), catching gross frame/projection errors without rejecting correct detections outside the defended area.
 4. **Timestamp validity & clock offset** — `timestamp_utc` is not in the future beyond a small tolerance, is not stale, and its offset from simulator reference time is within `max_clock_offset_s`. **This is the check the demo deliberately fails** (sensor 3 ships with an injected timestamp offset bug).
 5. **Update rate** — measured inter-detection interval over a short sample window falls within the sensor's configured `[min_hz, max_hz]`.
 6. **Heartbeat / liveness** — a `Detection` or heartbeat signal arrives within `heartbeat_timeout_s`.
-7. **Dropped-message behavior** — the harness withholds a run of raw inputs and confirms the adapter does not crash, emits a `Heartbeat` for every withheld tick, and neither fabricates nor duplicates `Detection`s. Fusion coasting through such a gap is verified in #9.
+7. **Dropped-message behavior** — the harness withholds a run of raw inputs and confirms the adapter does not crash, emits a `Heartbeat` at every withheld tick, and neither fabricates nor duplicates `Detection`s. Fusion coasting through such a gap is verified in #9.
 
 The harness completes in under 60 seconds (epic acceptance criterion) and produces a report listing each check as pass/fail with a one-line reason — mirroring the classifier's "explainable" philosophy.
 

@@ -189,6 +189,12 @@ def test_probe_stays_in_bounds_for_a_sensor_on_the_antimeridian(lon):
     assert build_probe_stream(sensor, SCENARIO)  # RawDetection construction succeeds
 
 
+def test_probe_position_raises_when_no_direction_is_in_bounds():
+    sensor = SENSOR.model_copy(update={"range_m": 2e9})
+    with pytest.raises(ValueError, match="no in-bounds probe position"):
+        probe_position(sensor, SCENARIO)
+
+
 def test_probe_builds_are_identical():
     withheld = withheld_tick_indices(SENSOR, SCENARIO)
     a = build_probe_stream(SENSOR, SCENARIO, withheld)
