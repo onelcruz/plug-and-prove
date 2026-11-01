@@ -31,6 +31,8 @@ In `specs/<issue#>-<slug>/`, in order:
 - Geometry/numeric/filtering code needs at least one known-answer test with an externally
   derived expected value, and a round-trip test where an inverse exists. Tests that only
   re-run your own formula don't count.
+- For every check or validator, name the sneakiest broken input that would still pass it,
+  and add that as a failing fixture before writing the implementation.
 - If you resolve a §13 question or deviate from the design, update `docs/architecture.md`
   in the same PR and say so in the PR body.
 
