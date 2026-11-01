@@ -10,6 +10,7 @@ intervals and counts, so a constant ``timestamp_utc`` offset does not change the
 
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 from pydantic import ValidationError
@@ -36,32 +37,50 @@ def _fail(number: int, reason: str) -> CheckResult:
     return _result(number, False, reason)
 
 
-def check_schema(messages: Sequence[object]) -> CheckResult:
-    """Check 1: every message is a valid ``Detection`` or ``Heartbeat``.
+def check_schema(runs: Sequence[Sequence[object]], sensor_id: str) -> CheckResult:
+    """Check 1: every message is a valid ``Detection`` or ``Heartbeat`` for ``sensor_id``.
 
-    Instances are re-validated from their dump, which catches objects built with
-    ``model_construct``/``model_copy(update=...)`` that skipped validation.
+    ``runs`` holds the output of each adapter call separately. Instances are
+    re-validated strictly from their dump, which catches objects built with
+    ``model_construct``/``model_copy(update=...)`` that skipped validation, and
+    values a lax parse would coerce (``"0.5"`` for a float). ``detection_id`` must
+    be unique within a run; runs are never compared with each other, because the
+    probe runs legitimately reuse ids.
     """
     detection_count = 0
-    for index, message in enumerate(messages):
-        if not isinstance(message, Detection | Heartbeat):
-            return _fail(
-                1,
-                f"message {index} is not a Detection or Heartbeat (got {type(message).__name__})",
-            )
-        try:
-            type(message).model_validate(message.model_dump())
-        except ValidationError as exc:
-            error = exc.errors()[0]
-            field = ".".join(str(part) for part in error["loc"]) or "<model>"
+    message_count = 0
+    for run_index, messages in enumerate(runs, start=1):
+        seen_ids: set[str] = set()
+        for index, message in enumerate(messages):
+            message_count += 1
+            if not isinstance(message, Detection | Heartbeat):
+                return _fail(
+                    1,
+                    f"run {run_index} message {index} is not a Detection or Heartbeat "
+                    f"(got {type(message).__name__})",
+                )
             detection_id = getattr(message, "detection_id", None)
-            who = f"message {index}" + (f" ({detection_id})" if detection_id else "")
-            return _fail(1, f"{who} field {field}: {error['msg']}")
-        if isinstance(message, Detection):
-            detection_count += 1
+            who = f"run {run_index} message {index}" + (
+                f" ({detection_id})" if detection_id else ""
+            )
+            try:
+                type(message).model_validate(message.model_dump(warnings=False), strict=True)
+            except ValidationError as exc:
+                error = exc.errors()[0]
+                field = ".".join(str(part) for part in error["loc"]) or "<model>"
+                return _fail(1, f"{who} field {field}: {error['msg']}")
+            if message.sensor_id != sensor_id:
+                return _fail(
+                    1, f"{who} sensor_id {message.sensor_id!r} does not match sensor {sensor_id!r}"
+                )
+            if isinstance(message, Detection):
+                detection_count += 1
+                if message.detection_id in seen_ids:
+                    return _fail(1, f"{who}: duplicate detection_id within the run")
+                seen_ids.add(message.detection_id)
     if detection_count == 0:
         return _fail(1, _NO_DETECTIONS)
-    return _pass(1, f"{len(messages)} messages valid ({detection_count} Detections)")
+    return _pass(1, f"{message_count} messages valid ({detection_count} Detections)")
 
 
 def check_units(
@@ -154,8 +173,14 @@ def check_update_rate(
     span_s = timestamps[-1] - timestamps[0]
     if span_s <= 0:
         return _fail(5, "Detections share one timestamp; no rate can be measured")
-    rate_hz = (len(timestamps) - 1) / span_s
-    if not sensor.min_hz <= rate_hz <= sensor.max_hz:
+    intervals = len(timestamps) - 1
+    rate_hz = intervals / span_s
+    # Epoch-second floats are only resolved to one ulp, so the span is uncertain by that much;
+    # fail only if every rate consistent with it lies outside the band.
+    resolution_s = math.ulp(timestamps[-1])
+    lowest_hz = intervals / (span_s + resolution_s)
+    highest_hz = intervals / (span_s - resolution_s) if span_s > resolution_s else math.inf
+    if highest_hz < sensor.min_hz or lowest_hz > sensor.max_hz:
         return _fail(
             5,
             f"measured rate {rate_hz:.3f} Hz is outside [{sensor.min_hz:g}, {sensor.max_hz:g}] Hz",
@@ -192,22 +217,65 @@ def check_heartbeat(
 
 def check_dropped_messages(
     gap_probe_messages: Sequence[Detection | Heartbeat],
-    supplied_count: int,
-    withheld_count: int,
+    gap_inputs: Sequence[RawDetection],
+    withheld_ticks_s: Sequence[float],
+    sensor: SensorConfig,
+    scenario: ScenarioConfig,
 ) -> CheckResult:
     """Check 7: a gap in the input yields one Heartbeat per withheld tick and nothing invented."""
     detections = [m for m in gap_probe_messages if isinstance(m, Detection)]
-    heartbeat_count = sum(1 for m in gap_probe_messages if isinstance(m, Heartbeat))
+    heartbeats = sorted(
+        (m for m in gap_probe_messages if isinstance(m, Heartbeat)), key=lambda m: m.timestamp_utc
+    )
     problems: list[str] = []
-    if len(detections) != supplied_count:
-        problems.append(f"{len(detections)} Detections for {supplied_count} inputs supplied")
-    if heartbeat_count != withheld_count:
-        problems.append(f"{heartbeat_count} Heartbeats for {withheld_count} withheld ticks")
+    if len(detections) != len(gap_inputs):
+        problems.append(f"{len(detections)} Detections for {len(gap_inputs)} inputs supplied")
+    if len(heartbeats) != len(withheld_ticks_s):
+        problems.append(f"{len(heartbeats)} Heartbeats for {len(withheld_ticks_s)} withheld ticks")
     ids = [d.detection_id for d in detections]
     if len(set(ids)) != len(ids):
         problems.append("duplicate detection_id values")
+    if not problems:
+        misplaced = _misplaced_heartbeat(
+            heartbeats, detections, gap_inputs, sorted(withheld_ticks_s), sensor, scenario
+        )
+        if misplaced:
+            problems.append(misplaced)
     if problems:
         return _fail(7, "; ".join(problems))
     return _pass(
-        7, f"{len(detections)} Detections and {heartbeat_count} Heartbeats match the gap probe"
+        7,
+        f"{len(detections)} Detections and {len(heartbeats)} Heartbeats match the gap probe",
     )
+
+
+def _misplaced_heartbeat(
+    heartbeats: Sequence[Heartbeat],
+    detections: Sequence[Detection],
+    gap_inputs: Sequence[RawDetection],
+    withheld_ticks_s: Sequence[float],
+    sensor: SensorConfig,
+    scenario: ScenarioConfig,
+) -> str | None:
+    """Describe the first Heartbeat that is not at its withheld tick, or None if all are.
+
+    The constant clock offset (check 4's concern) is estimated from the Detections and
+    removed first, so this stays offset-invariant (FR-009a). Matching is by sorted order
+    within half a tick period, so a replayed Heartbeat cannot cover several ticks.
+    """
+    references = sorted(scenario.start_utc + raw.t_s for raw in gap_inputs)
+    timestamps = sorted(det.timestamp_utc for det in detections)
+    offset_s = (
+        sum(t - r for t, r in zip(timestamps, references, strict=True)) / len(references)
+        if references
+        else 0.0
+    )
+    tolerance_s = 1.0 / (2.0 * sensor.update_rate_hz)
+    for heartbeat, tick_s in zip(heartbeats, withheld_ticks_s, strict=True):
+        error_s = heartbeat.timestamp_utc - (scenario.start_utc + tick_s + offset_s)
+        if abs(error_s) > tolerance_s:
+            return (
+                f"Heartbeat is {abs(error_s):.3f} s from withheld tick {tick_s:g} s "
+                f"(limit {tolerance_s:g} s); the withheld ticks are not covered"
+            )
+    return None

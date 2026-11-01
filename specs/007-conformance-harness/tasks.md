@@ -223,14 +223,38 @@ admits sensors 1 and 2 in under 60 s.
       to `specs/007-conformance-harness/`; minimal rewording of §4 check 3 (sensor coverage circle)
       and check 7 (adapter-side gap response, fusion coasting verified in #9); strike the four §13
       bullets assigned to #7 with one "Resolved in #7" pointer line. Do not touch §12.
-- [ ] T031 Run `ruff check . && lint-imports && pytest`. All green. Re-run the three import probes
+- [x] T031 Run `ruff check . && lint-imports && pytest`. All green. Re-run the three import probes
       (T003) and confirm no probe files remain. Save the exact output for the PR body.
-- [ ] T032 Commit (imperative summary, why, `#7`, Co-authored-by trailer). Open the PR
+- [x] T032 Commit (imperative summary, why, `#7`, Co-authored-by trailer). Open the PR
       `feature/7-conformance-harness` → `main` with the PR-body requirements listed in plan.md (first
       line classification, analyze table, Architecture doc section noting the §4 check 3/7 changes,
       import probes (re-run from T003), check outputs). Confirm CI is green.
 - [ ] T033 Request the independent review: `gh pr edit <N> --add-reviewer "@copilot"`. Address or
       dismiss (with reasoning) every finding, re-run T031, and record the outcome in the PR body.
+
+---
+
+## Phase 8: PR #28 review round (spec amended: FR-002, FR-002a/b, FR-006, FR-008a/b, FR-009b)
+
+Each fixture task is written first and MUST fail (admitted / passes) on the pre-fix code.
+
+- [x] T034 Red fixtures in `tests/conformance_fixtures.py` + harness tests: `wrong_sensor_id_adapter`
+      (F5), `duplicate_id_adapter` — ids from the tick index only, so two same-tick real targets
+      collide (F6), `replayed_heartbeat_adapter` — first gap Heartbeat copied for every withheld
+      tick (F3). Run on current code; each is ADMITTED (record output).
+- [x] T035 Red unit tests: strict-typing (F1), non-binary-exact rate boundary (F2), adapter that
+      mutates `scenario.max_clock_offset_s` / `raw.t_s` (F4), sensor at lon 180 (F7).
+- [x] T036 `check_schema(runs, sensor_id)`: strict validation, sensor_id match, per-run
+      `detection_id` uniqueness (FR-002/002a/002b); update harness call and `check_schema` tests.
+- [x] T037 `check_update_rate`: timestamp-resolution-aware inclusive bounds (FR-006).
+- [x] T038 `check_dropped_messages(gap_messages, gap_inputs, withheld_ticks_s, sensor, scenario)`:
+      offset-normalised Heartbeat coverage (FR-009b); `probes.withheld_ticks_s`.
+- [x] T039 `harness._call`: deep-copy raw inputs and configs per adapter call (FR-008a).
+- [x] T040 `probes.probe_position`: in-bounds direction fallback (FR-008b).
+- [x] T041 Re-run T031 (ruff, lint-imports, pytest, 3 import probes); the T034 fixtures are now BLOCKED
+      by exactly the intended check; known-good adapters still admitted.
+- [ ] T042 Re-run `/speckit-analyze`; fix CRITICAL/HIGH; paste table in the PR body.
+- [ ] T043 Reply on all 7 Copilot threads, then resolve them; update the PR body.
 
 ---
 

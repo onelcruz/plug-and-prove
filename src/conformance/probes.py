@@ -22,13 +22,26 @@ def sensor_position(sensor: SensorConfig, scenario: ScenarioConfig) -> tuple[flo
 
 
 def probe_position(sensor: SensorConfig, scenario: ScenarioConfig) -> tuple[float, float, float]:
-    """Fixed probe target: due east of the sensor by ``range_m / 2``, mid-band altitude.
+    """Fixed probe target: ``range_m / 2`` from the sensor, at mid-band altitude.
 
-    Inside check 3's coverage circle and check 2's altitude bounds by construction.
+    Inside check 2's altitude bounds and check 3's coverage circle by construction. The
+    direction is east unless that leaves valid lat/lon (e.g. a sensor at lon 180); then
+    west, north, south. Raises ``ValueError`` if no direction stays in bounds.
     """
     base_lat, base_lon = sensor_position(sensor, scenario)
-    lat, lon = offset_to_latlon(base_lat, base_lon, sensor.range_m / 2.0, 0.0)
-    return lat, lon, (scenario.min_alt_m + scenario.max_alt_m) / 2.0
+    half_range_m = sensor.range_m / 2.0
+    for east_m, north_m in (
+        (half_range_m, 0.0),
+        (-half_range_m, 0.0),
+        (0.0, half_range_m),
+        (0.0, -half_range_m),
+    ):
+        lat, lon = offset_to_latlon(base_lat, base_lon, east_m, north_m)
+        if -90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0:
+            return lat, lon, (scenario.min_alt_m + scenario.max_alt_m) / 2.0
+    raise ValueError(
+        f"no in-bounds probe position {half_range_m:g} m from ({base_lat}, {base_lon})"
+    )
 
 
 def withheld_tick_indices(sensor: SensorConfig, scenario: ScenarioConfig) -> frozenset[int]:
@@ -46,6 +59,12 @@ def withheld_tick_indices(sensor: SensorConfig, scenario: ScenarioConfig) -> fro
     if run_length <= 0:
         return frozenset()
     return frozenset(range(start, start + run_length))
+
+
+def withheld_ticks_s(sensor: SensorConfig, scenario: ScenarioConfig) -> list[float]:
+    """Scheduled times (seconds, ascending) of the ticks the gap probe withholds."""
+    ticks = expected_ticks(sensor.update_rate_hz, scenario.duration_s)
+    return [ticks[i] for i in sorted(withheld_tick_indices(sensor, scenario))]
 
 
 def build_probe_stream(

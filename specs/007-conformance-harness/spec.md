@@ -160,7 +160,17 @@ admitted/blocked verdict.
   structured result: check id/name, PASS/FAIL, and a one-line human-readable reason (Principle VI).
 - **FR-002**: Check 1 (schema) MUST validate every emitted message against the canonical
   `Detection`/`Heartbeat` models and FAIL on any validation error, reporting the first offending
-  message and field.
+  message and field. Validation MUST be strict (no type coercion): the re-validation result is
+  discarded, so a coerced value (e.g. `confidence="0.5"`) would otherwise pass while the original
+  object keeps the wrong type (PR #28 review, F1).
+- **FR-002a**: Check 1 MUST also FAIL if any emitted `Detection` or `Heartbeat` carries a
+  `sensor_id` different from the submitted sensor's `sensor_id`, naming the message and both ids.
+  The gate reports admission under the configured id, so a mislabelled stream must not pass
+  (PR #28 review, F5).
+- **FR-002b**: Check 1 MUST also FAIL if any `detection_id` is duplicated within a single adapter
+  run's output — the real stream and each probe run are checked separately, never against each
+  other, since probe runs legitimately reuse ids (PR #28 review, F6). The real stream is the one
+  the gate releases. FR-009's gap-probe duplicate test remains.
 - **FR-003**: Check 2 (units) MUST FAIL if any `Detection.alt_m` falls outside the scenario's
   `[min_alt_m, max_alt_m]`, or any `Detection.accuracy_m` exceeds the sensor's `max_accuracy_m`.
 - **FR-004**: Check 3 (coordinate frame) MUST FAIL if any `Detection` lies more than
@@ -178,7 +188,10 @@ admitted/blocked verdict.
   the reference (Clarifications, Q2). `Heartbeat` timing is covered by check 6, not check 4.
 - **FR-006**: Check 5 (update rate) MUST measure the `Detection`-only rate on the full (no-gap)
   probe stream and FAIL if it falls outside the sensor's configured `[min_hz, max_hz]`. It MUST NOT
-  count `Heartbeat`s toward cadence (ruled out in §13 as unfalsifiable).
+  count `Heartbeat`s toward cadence (ruled out in §13 as unfalsifiable). The bounds are inclusive
+  and the comparison MUST allow for the resolution of the epoch-second timestamps: the measured
+  span is uncertain by at most one `math.ulp` of the latest timestamp, and the check FAILs only if
+  the whole resulting rate interval lies outside `[min_hz, max_hz]` (PR #28 review, F2).
 - **FR-007**: Check 6 (heartbeat/liveness) MUST, on full probe-stream output sorted by
   `timestamp_utc`, FAIL if (a) any gap between consecutive messages (`Detection` or `Heartbeat`)
   exceeds the sensor's `heartbeat_timeout_s`, or (b) the stream's span (last minus first message
@@ -191,6 +204,15 @@ admitted/blocked verdict.
   run of **withheld ticks**). Checks 1–4 evaluate
   the adapter's output over all inputs; checks 5–7 evaluate only probe-stream output (Clarifications,
   Q3). Probe streams use no randomness, so results are identical across runs (Principle V).
+- **FR-008a**: Each adapter call MUST receive deep copies of the raw inputs, `SensorConfig` and
+  `ScenarioConfig`. An adapter that mutates its arguments MUST NOT be able to change the harness's
+  reference times, the acceptance limits, or the caller's objects (PR #28 review, F4).
+- **FR-008b**: The probe position MUST be a valid latitude/longitude for every valid sensor
+  position. It is due east of the sensor by `range_m / 2`; if that leaves `[-180, 180]` longitude or
+  `[-90, 90]` latitude it falls back to west, then north, then south, and the first in-bounds
+  direction is used (a sensor at lon 180 would otherwise generate an unconstructible probe and be
+  blocked for a harness fault; PR #28 review, F7). If no direction is in bounds the harness raises
+  `ValueError` — a harness-input problem, not an adapter verdict.
 - **FR-009**: Check 7 (dropped-message behavior) MUST run the adapter on the gap probe (raw input
   withheld for a contiguous run of scheduled ticks — the withheld ticks) and FAIL if the adapter
   raises, if the number of `Detection`s differs from the number of raw inputs supplied (fabricated or
@@ -199,6 +221,11 @@ admitted/blocked verdict.
   duplicated. It
   evaluates the adapter only; the fusion engine's coasting behavior under gaps is verified in #9, not
   here (Clarifications, Q1). architecture.md §4 check 7 is reworded accordingly in the same PR.
+- **FR-009b**: Check 7 MUST also verify that the `Heartbeat`s cover the withheld ticks, not just
+  that there are as many: after removing the constant offset estimated from the `Detection`s, the
+  sorted `Heartbeat` times must each lie within half a tick period (`1 / (2 × update_rate_hz)`) of
+  the corresponding sorted withheld tick. One `Heartbeat` replayed for every withheld tick FAILs
+  (PR #28 review, F3). The offset estimate keeps check 7 offset-invariant (FR-009a).
 - **FR-009a**: Checks 5, 6, and 7 MUST be invariant to a constant `timestamp_utc` offset: they use
   counts, intervals between messages, and spans — never absolute times compared to the schedule.
   Clock alignment is exclusively check 4's responsibility, so an offset-only fault (the check-4

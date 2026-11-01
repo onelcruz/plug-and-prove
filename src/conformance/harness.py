@@ -9,6 +9,7 @@ dependent checks FAIL (FR-012).
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -16,7 +17,7 @@ from src.adapters.base import SensorAdapter
 from src.adapters.messages import Detection, Heartbeat
 from src.config.models import ScenarioConfig, SensorConfig
 from src.conformance import checks
-from src.conformance.probes import build_probe_stream, withheld_tick_indices
+from src.conformance.probes import build_probe_stream, withheld_tick_indices, withheld_ticks_s
 from src.conformance.results import CHECK_NAMES, CheckResult, HarnessResult
 from src.simulator.detections import RawDetection
 
@@ -51,7 +52,12 @@ def _call(
     scenario: ScenarioConfig,
 ) -> _Outcome:
     try:
-        return _Outcome(messages=list(adapter(list(raw), sensor, scenario)))
+        # Deep copies keep the adapter from altering the evidence or its own acceptance limits.
+        return _Outcome(
+            messages=list(
+                adapter(copy.deepcopy(raw), copy.deepcopy(sensor), copy.deepcopy(scenario))
+            )
+        )
     except Exception as exc:  # any adapter failure is a verdict, not a crash
         return _Outcome(messages=[], error=_describe("adapter raised", exc))
 
@@ -104,14 +110,14 @@ def run_harness(
     def over_run(number: int, run: _Outcome, evaluate: Callable[[], CheckResult]) -> CheckResult:
         return _blocked_by(number, (run,)) or _guard(number, evaluate)
 
-    def every_message() -> list[Detection | Heartbeat]:
-        return [m for run in all_runs for m in run.messages]
-
     def every_detection() -> list[Detection]:
-        return _detections(every_message())
+        return [d for run in all_runs for d in _detections(run.messages)]
 
     results = (
-        over_all_runs(1, lambda: checks.check_schema(every_message())),
+        over_all_runs(
+            1,
+            lambda: checks.check_schema([run.messages for run in all_runs], sensor.sensor_id),
+        ),
         over_all_runs(2, lambda: checks.check_units(every_detection(), sensor, scenario)),
         over_all_runs(
             3, lambda: checks.check_coordinate_frame(every_detection(), sensor, scenario)
@@ -132,7 +138,9 @@ def run_harness(
         over_run(
             7,
             gap,
-            lambda: checks.check_dropped_messages(gap.messages, len(gap_inputs), len(withheld)),
+            lambda: checks.check_dropped_messages(
+                gap.messages, gap_inputs, withheld_ticks_s(sensor, scenario), sensor, scenario
+            ),
         ),
     )
     return HarnessRun(

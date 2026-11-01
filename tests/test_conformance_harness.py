@@ -14,10 +14,15 @@ from src.simulator.scenario import run_simulation
 from tests.conformance_fixtures import (
     SCENARIO,
     SENSORS,
+    duplicate_id_adapter,
     feet_adapter,
     heartbeat_dropping_adapter,
+    mutating_input_adapter,
+    mutating_limit_adapter,
     offset_adapter,
     real_streams,
+    replayed_heartbeat_adapter,
+    wrong_sensor_id_adapter,
 )
 
 SENSOR_1 = SENSORS[0]
@@ -85,3 +90,47 @@ def test_real_detections_are_not_mutated_by_the_harness(sensor):
     before = [r.model_dump_json() for r in real_raw]
     run_harness(translate, sensor, SCENARIO, real_raw)
     assert [r.model_dump_json() for r in real_raw] == before
+
+
+# --- PR #28 review findings: each fixture was ADMITTED before the fix ------
+
+
+@pytest.mark.parametrize("sensor", SENSORS, ids=lambda s: s.sensor_id)
+def test_adapter_emitting_another_sensor_id_is_blocked_by_check_1(sensor):
+    run = run_harness(wrong_sensor_id_adapter, sensor, SCENARIO, real_streams()[sensor.sensor_id])
+    assert _failed_numbers(run.result) == [1]
+    assert "sensor-other" in run.result.checks[0].reason
+    assert sensor.sensor_id in run.result.checks[0].reason
+
+
+@pytest.mark.parametrize("sensor", SENSORS, ids=lambda s: s.sensor_id)
+def test_duplicate_detection_ids_in_the_real_stream_are_blocked_by_check_1(sensor):
+    run = run_harness(duplicate_id_adapter, sensor, SCENARIO, real_streams()[sensor.sensor_id])
+    assert _failed_numbers(run.result) == [1]
+    assert "duplicate detection_id" in run.result.checks[0].reason
+
+
+@pytest.mark.parametrize("sensor", SENSORS, ids=lambda s: s.sensor_id)
+def test_one_heartbeat_replayed_for_every_withheld_tick_is_blocked_by_check_7(sensor):
+    run = run_harness(
+        replayed_heartbeat_adapter, sensor, SCENARIO, real_streams()[sensor.sensor_id]
+    )
+    assert _failed_numbers(run.result) == [7]
+    assert "Heartbeat" in run.result.checks[6].reason
+
+
+def test_adapter_cannot_loosen_the_acceptance_limit_it_is_judged_by():
+    scenario = SCENARIO.model_copy(deep=True)
+    run = run_harness(
+        mutating_limit_adapter, SENSOR_1, scenario, real_streams()[SENSOR_1.sensor_id]
+    )
+    assert scenario.max_clock_offset_s == SCENARIO.max_clock_offset_s
+    assert _failed_numbers(run.result) == [4]
+
+
+def test_adapter_cannot_change_the_harness_reference_times_or_callers_stream():
+    real_raw = [r.model_copy() for r in real_streams()[SENSOR_1.sensor_id]]
+    before = [r.model_dump_json() for r in real_raw]
+    run = run_harness(mutating_input_adapter, SENSOR_1, SCENARIO, real_raw)
+    assert [r.model_dump_json() for r in real_raw] == before
+    assert _failed_numbers(run.result) == [4]

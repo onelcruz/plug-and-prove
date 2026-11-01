@@ -102,8 +102,9 @@ def _results(numbers):
     return tuple(
         CheckResult(
             number=n,
-            name=("schema units coordinate_frame clock_offset update_rate heartbeat "
-                  "dropped_messages").split()[n - 1],
+            name=(
+                "schema units coordinate_frame clock_offset update_rate heartbeat dropped_messages"
+            ).split()[n - 1],
             passed=True,
             reason="ok",
         )
@@ -179,6 +180,15 @@ def test_gap_run_is_clamped_to_leave_inputs_before_and_after():
     assert withheld_tick_indices(SENSOR, tiny) == frozenset()
 
 
+@pytest.mark.parametrize("lon", [180.0, -180.0])
+def test_probe_stays_in_bounds_for_a_sensor_on_the_antimeridian(lon):
+    sensor = SENSOR.model_copy(update={"lat": 0.0, "lon": lon, "range_m": 5000.0})
+    lat, probe_lon, _ = probe_position(sensor, SCENARIO)
+    assert -90.0 <= lat <= 90.0 and -180.0 <= probe_lon <= 180.0
+    assert distance_m(0.0, lon, lat, probe_lon) == pytest.approx(2500.0, abs=1.0)
+    assert build_probe_stream(sensor, SCENARIO)  # RawDetection construction succeeds
+
+
 def test_probe_builds_are_identical():
     withheld = withheld_tick_indices(SENSOR, SCENARIO)
     a = build_probe_stream(SENSOR, SCENARIO, withheld)
@@ -189,29 +199,58 @@ def test_probe_builds_are_identical():
 # --- Check 1: schema --------------------------------------------------------
 
 
+def _schema(messages, sensor_id: str = SENSOR.sensor_id) -> CheckResult:
+    return check_schema([messages], sensor_id)
+
+
+def test_schema_fails_a_message_labelled_with_another_sensor():
+    result = _schema([_detection(0), _detection(1, sensor_id="sensor-other")])
+    assert not result.passed
+    assert "message 1" in result.reason and "sensor-other" in result.reason
+    assert SENSOR.sensor_id in result.reason
+    assert not _schema(
+        [_heartbeat(0.0).model_copy(update={"sensor_id": "x"}), _detection(0)]
+    ).passed
+
+
+def test_schema_fails_duplicate_detection_ids_within_a_run():
+    result = _schema([_detection(0), _detection(0)])
+    assert not result.passed and "duplicate detection_id" in result.reason
+
+
+def test_schema_allows_the_same_ids_in_different_runs():
+    assert check_schema([[_detection(0)], [_detection(0)]], SENSOR.sensor_id).passed
+
+
 def test_schema_passes_valid_messages():
-    result = check_schema([_detection(0), _heartbeat(0.5)])
+    result = _schema([_detection(0), _heartbeat(0.5)])
     assert result.passed and result.number == 1 and result.name == "schema"
 
 
 def test_schema_fails_unvalidated_out_of_range_confidence():
     bad = _detection(7).model_copy(update={"confidence": 1.5})  # skips validation
-    result = check_schema([_detection(0), bad])
+    result = _schema([_detection(0), bad])
     assert not result.passed
     assert "message 1" in result.reason
     assert bad.detection_id in result.reason
     assert "confidence" in result.reason
 
 
+def test_schema_fails_coerced_wrong_type_field():
+    bad = _detection(7).model_copy(update={"confidence": "0.5"})  # coerces to 0.5 if not strict
+    result = _schema([bad])
+    assert not result.passed and "confidence" in result.reason
+
+
 def test_schema_fails_non_model_message():
-    result = check_schema([_detection(0), {"lat": 1.0}])
+    result = _schema([_detection(0), {"lat": 1.0}])
     assert not result.passed
     assert "message 1" in result.reason and "dict" in result.reason
 
 
 def test_schema_fails_when_there_are_no_detections():
-    assert check_schema([_heartbeat(0.0)]).reason == "no Detections to evaluate"
-    assert not check_schema([]).passed
+    assert _schema([_heartbeat(0.0)]).reason == "no Detections to evaluate"
+    assert not _schema([]).passed
 
 
 # --- Check 2: units ---------------------------------------------------------
@@ -295,8 +334,7 @@ T_S = [0.0, 0.5, 1.0]
 def _run(offset_s: float = 0.0, t_s=T_S):
     raws = [_raw(t) for t in t_s]
     dets = [
-        _detection(i, t, timestamp_utc=SCENARIO.start_utc + t + offset_s)
-        for i, t in enumerate(t_s)
+        _detection(i, t, timestamp_utc=SCENARIO.start_utc + t + offset_s) for i, t in enumerate(t_s)
     ]
     return raws, dets
 
@@ -362,6 +400,23 @@ def test_update_rate_bounds_are_inclusive():
     assert check_update_rate(_timed(11, 0.5), exact).passed
 
 
+def test_update_rate_inclusive_bound_survives_epoch_timestamp_rounding():
+    # 7 Hz is not binary-exact and start_utc ~ 1.7e9 s has ~2.4e-7 s resolution: the measured rate
+    # is 6.999999..., yet a sensor whose band is exactly [7, 7] must still pass.
+    sensor = SENSOR.model_copy(update={"update_rate_hz": 7.0, "min_hz": 7.0, "max_hz": 7.0})
+    ticks = expected_ticks(7.0, 0.5)
+    start_utc = 1735689600.0
+    detections = [_detection(i, timestamp_utc=start_utc + t) for i, t in enumerate(ticks)]
+    measured = (len(ticks) - 1) / (detections[-1].timestamp_utc - detections[0].timestamp_utc)
+    assert measured != 7.0  # the case this test exists for
+    assert check_update_rate(detections, sensor).passed
+
+
+def test_update_rate_still_fails_when_clearly_outside_the_band():
+    sensor = SENSOR.model_copy(update={"min_hz": 7.0, "max_hz": 7.0})
+    assert not check_update_rate(_timed(11, 0.5), sensor).passed
+
+
 def test_update_rate_fails_with_fewer_than_two_detections():
     assert not check_update_rate(_timed(1, 0.5), SENSOR).passed
     assert not check_update_rate([], SENSOR).passed
@@ -413,28 +468,51 @@ def test_heartbeat_is_invariant_to_a_constant_offset():
 # --- Check 7: dropped messages ---------------------------------------------
 
 
-def _gap_messages(detections: int, heartbeats: int) -> list[Detection | Heartbeat]:
-    return [_detection(i, i * 0.5) for i in range(detections)] + [
-        _heartbeat(10.0 + i) for i in range(heartbeats)
-    ]
+def _gap_case(detections: int = 3, heartbeats: int = 2, offset_s: float = 0.0):
+    """Gap-probe evidence: Detections at ticks 0..d-1, Heartbeats at the following ticks."""
+    messages: list[Detection | Heartbeat] = [
+        _detection(i, i * 0.5, timestamp_utc=SCENARIO.start_utc + i * 0.5 + offset_s)
+        for i in range(detections)
+    ] + [_heartbeat((detections + i) * 0.5, offset_s) for i in range(heartbeats)]
+    inputs = [_raw(i * 0.5) for i in range(3)]
+    withheld = [(3 + i) * 0.5 for i in range(2)]
+    return messages, inputs, withheld
+
+
+def _dropped(messages, inputs, withheld) -> CheckResult:
+    return check_dropped_messages(messages, inputs, withheld, SENSOR, SCENARIO)
 
 
 def test_dropped_messages_passes_when_counts_match():
-    assert check_dropped_messages(_gap_messages(3, 2), 3, 2).passed
+    assert _dropped(*_gap_case()).passed
 
 
 def test_dropped_messages_fails_on_a_skipped_heartbeat():
-    result = check_dropped_messages(_gap_messages(3, 1), 3, 2)
+    result = _dropped(*_gap_case(heartbeats=1))
     assert not result.passed and "1 Heartbeats for 2 withheld ticks" in result.reason
 
 
 def test_dropped_messages_fails_on_a_fabricated_detection():
-    result = check_dropped_messages(_gap_messages(4, 2), 3, 2)
+    result = _dropped(*_gap_case(detections=4))
     assert not result.passed and "4 Detections for 3 inputs" in result.reason
 
 
 def test_dropped_messages_fails_on_duplicate_detection_ids():
-    messages = _gap_messages(3, 2)
+    messages, inputs, withheld = _gap_case()
     messages[1] = messages[0]
-    result = check_dropped_messages(messages, 3, 2)
+    result = _dropped(messages, inputs, withheld)
     assert not result.passed and "duplicate detection_id" in result.reason
+
+
+def test_dropped_messages_fails_when_one_heartbeat_is_replayed_for_every_withheld_tick():
+    messages, inputs, withheld = _gap_case()
+    messages[-1] = messages[-2]  # same count, but the second withheld tick is uncovered
+    result = _dropped(messages, inputs, withheld)
+    assert not result.passed and "withheld ticks are not covered" in result.reason
+
+
+def test_dropped_messages_is_invariant_to_a_constant_offset():
+    assert _dropped(*_gap_case(offset_s=2.0)).passed
+    messages, inputs, withheld = _gap_case(offset_s=2.0)
+    messages[-1] = messages[-2]
+    assert not _dropped(messages, inputs, withheld).passed

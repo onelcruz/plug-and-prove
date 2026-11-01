@@ -9,14 +9,15 @@ Pure functions over evidence; each returns exactly one `CheckResult` and never r
 adapter output.
 
 ```text
-check_schema(messages: Sequence[object]) -> CheckResult                                   # 1
+check_schema(runs: Sequence[Sequence[object]], sensor_id: str) -> CheckResult             # 1
 check_units(detections, sensor: SensorConfig, scenario: ScenarioConfig) -> CheckResult    # 2
 check_coordinate_frame(detections, sensor, scenario) -> CheckResult                       # 3
 check_clock_offset(runs: Sequence[tuple[list[RawDetection], list[Detection]]],
                    scenario) -> CheckResult                                               # 4
 check_update_rate(full_probe_detections, sensor) -> CheckResult                           # 5
 check_heartbeat(full_probe_messages, sensor, scenario) -> CheckResult                     # 6
-check_dropped_messages(gap_probe_messages, supplied_count: int, withheld_count: int)
+check_dropped_messages(gap_probe_messages, gap_inputs: Sequence[RawDetection],
+                       withheld_ticks_s: Sequence[float], sensor, scenario)
                    -> CheckResult                                                         # 7
 ```
 
@@ -28,6 +29,7 @@ constant `timestamp_utc` offset.
 ```text
 probe_position(sensor, scenario) -> tuple[float, float, float]      # lat, lon, alt_m
 withheld_tick_indices(sensor, scenario) -> frozenset[int]
+withheld_ticks_s(sensor, scenario) -> list[float]                   # sorted withheld tick times
 build_probe_stream(sensor, scenario, withheld: frozenset[int] = frozenset()) -> list[RawDetection]
 ```
 

@@ -50,6 +50,50 @@ def raising_adapter(raw, sensor: SensorConfig, scenario: ScenarioConfig):
     raise RuntimeError("boom\nsecond line")
 
 
+def wrong_sensor_id_adapter(raw, sensor: SensorConfig, scenario: ScenarioConfig):
+    """A faulty adapter that labels every message with another sensor's id (F5)."""
+    return [
+        m.model_copy(update={"sensor_id": "sensor-other"}) for m in translate(raw, sensor, scenario)
+    ]
+
+
+def duplicate_id_adapter(raw, sensor: SensorConfig, scenario: ScenarioConfig):
+    """A faulty adapter whose detection_id uses the tick index alone (F6).
+
+    Valid on a one-target-per-tick probe; collides whenever two real targets share a tick.
+    """
+    messages = []
+    for m in translate(raw, sensor, scenario):
+        if isinstance(m, Detection):
+            tick = round((m.timestamp_utc - scenario.start_utc) * sensor.update_rate_hz)
+            m = m.model_copy(update={"detection_id": f"{m.sensor_id}:{tick}"})
+        messages.append(m)
+    return messages
+
+
+def replayed_heartbeat_adapter(raw, sensor: SensorConfig, scenario: ScenarioConfig):
+    """A faulty adapter that replays its first Heartbeat for every Heartbeat it should emit (F3)."""
+    messages = translate(raw, sensor, scenario)
+    first = next((m for m in messages if isinstance(m, Heartbeat)), None)
+    return [first if isinstance(m, Heartbeat) else m for m in messages]
+
+
+def mutating_limit_adapter(raw, sensor: SensorConfig, scenario: ScenarioConfig):
+    """A faulty adapter that loosens its own acceptance limit, then skews by 2 s (F4)."""
+    scenario.max_clock_offset_s = 3.0
+    return offset_adapter(raw, sensor, scenario)
+
+
+def mutating_input_adapter(raw, sensor: SensorConfig, scenario: ScenarioConfig):
+    """A faulty adapter that shifts the raw inputs' times, and its output with them (F4)."""
+    messages = translate(raw, sensor, scenario)
+    for r in raw:
+        r.t_s += CLOCK_OFFSET_S
+    return [
+        m.model_copy(update={"timestamp_utc": m.timestamp_utc + CLOCK_OFFSET_S}) for m in messages
+    ]
+
+
 class StubFusion:
     """A stand-in downstream consumer: it only ever sees what the gate releases."""
 
